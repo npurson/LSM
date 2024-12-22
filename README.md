@@ -2,8 +2,8 @@
 
 <h5 align="center">
 
-[![arXiv](https://img.shields.io/badge/Arxiv-2403.20309-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2410.18956) 
-[![Gradio](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/kairunwen/LSM) 
+[![arXiv](https://img.shields.io/badge/Arxiv-2403.20309-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2410.18956)
+[![Gradio](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/kairunwen/LSM)
 [![Home Page](https://img.shields.io/badge/Project-Website-green.svg)](https://largespatialmodel.github.io/)
 
 </h5>
@@ -38,6 +38,10 @@ https://github.com/user-attachments/assets/e6a1d956-565d-4a61-8d73-db8e7610fb21
 ## Get Started
 
 ### Installation
+0. **Dowload repo:**
+   ````
+   git clone --recurse-submodules https://github.com/NVlabs/LSM.git
+   ````
 1. **Create and activate conda environment:**
    ````bash
    conda create -n lsm python=3.10
@@ -82,19 +86,19 @@ https://github.com/user-attachments/assets/e6a1d956-565d-4a61-8d73-db8e7610fb21
    ````
 
 8. **Download pre-trained models:**
-   
+
    The following three model weights need to be downloaded:
 
    ```bash
    # 1. Create directory for checkpoints
    mkdir -p checkpoints/pretrained_models
-   
+
    # 2. DUSt3R model weights
    wget -P checkpoints/pretrained_models https://download.europe.naverlabs.com/ComputerVision/DUSt3R/DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth
-   
+
    # 3. LSEG demo model weights
    gdown 1FTuHY1xPUkM-5gaDtMfgCl3D0gR89WV7 -O checkpoints/pretrained_models/demo_e200.ckpt
-   
+
    # 4. LSM final checkpoint
    gdown 1q57nbRJpPhrdf1m7XZTkBfUIskpgnbri -O checkpoints/pretrained_models/checkpoint-final.pth
    ```
@@ -103,7 +107,7 @@ https://github.com/user-attachments/assets/e6a1d956-565d-4a61-8d73-db8e7610fb21
 1. Data preparation
    - Prepare any two images of indoor scenes (preferably indoor images, as the model is trained on indoor scene datasets).
    - Place your images in a directory of your choice.
-   
+
    Example directory structure:
    ````bash
    demo_images/
@@ -126,10 +130,10 @@ https://github.com/user-attachments/assets/e6a1d956-565d-4a61-8d73-db8e7610fb21
    ```bash
    # Path to your input images
    --file_list "demo_images/indoor/scene2/image1.jpg" "demo_images/indoor/scene2/image2.jpg"
-   
+
    # Output directory for Gaussian points and rendered video
    --output_path "outputs/indoor/scene2"
-   
+
    # Image resolution for processing
    --resolution "256"
    ```
@@ -150,12 +154,12 @@ If you find our work useful in your research, please consider giving a star :sta
 
 ```bibTeX
 @misc{fan2024largespatialmodelendtoend,
-      title={Large Spatial Model: End-to-end Unposed Images to Semantic 3D}, 
+      title={Large Spatial Model: End-to-end Unposed Images to Semantic 3D},
       author={Zhiwen Fan and Jian Zhang and Wenyan Cong and Peihao Wang and Renjie Li and Kairun Wen and Shijie Zhou and Achuta Kadambi and Zhangyang Wang and Danfei Xu and Boris Ivanovic and Marco Pavone and Yue Wang},
       year={2024},
       eprint={2410.18956},
       archivePrefix={arXiv},
       primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2410.18956}, 
+      url={https://arxiv.org/abs/2410.18956},
 }
 ```
