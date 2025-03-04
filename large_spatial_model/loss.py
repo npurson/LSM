@@ -1,3 +1,6 @@
+import torch
+import torch.nn as nn
+
 from dust3r.losses import *
 from torchmetrics import JaccardIndex, Accuracy
 from torchmetrics.image import StructuralSimilarityIndexMeasure, PeakSignalNoiseRatio
@@ -8,6 +11,9 @@ from einops import rearrange
 from large_spatial_model.utils.camera_utils import get_scaled_camera
 from torchvision.utils import save_image
 from dust3r.inference import make_batch_symmetric
+
+from large_spatial_model.utils.reprojection import generate_grid, reprojector
+
 
 class KWRegr3D(Regr3D):
     def get_all_pts3d(self, gt1, gt2, pred1, pred2, dist_clip=None, **kwargs):
@@ -25,8 +31,43 @@ class L1Loss (LLoss):
     def distance(self, a, b):
         return torch.abs(a - b).mean()  # L1 distance
 
+
+class SSIM(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.mu_x_pool = nn.AvgPool2d(3, 1)
+        self.mu_y_pool = nn.AvgPool2d(3, 1)
+        self.sig_x_pool = nn.AvgPool2d(3, 1)
+        self.sig_y_pool = nn.AvgPool2d(3, 1)
+        self.sig_xy_pool = nn.AvgPool2d(3, 1)
+
+        self.refl = nn.ReflectionPad2d(1)
+
+        self.C1 = 0.01**2
+        self.C2 = 0.03**2
+
+    def forward(self, x, y):
+        x = self.refl(x)
+        y = self.refl(y)
+
+        mu_x = self.mu_x_pool(x)
+        mu_y = self.mu_y_pool(y)
+
+        sigma_x = self.sig_x_pool(x**2) - mu_x**2
+        sigma_y = self.sig_y_pool(y**2) - mu_y**2
+        sigma_xy = self.sig_xy_pool(x * y) - mu_x * mu_y
+
+        SSIM_n = (2 * mu_x * mu_y + self.C1) * (2 * sigma_xy + self.C2)
+        SSIM_d = (mu_x**2 + mu_y**2 + self.C1) * (sigma_x + sigma_y + self.C2)
+
+        return torch.clamp((1 - SSIM_n / SSIM_d) / 2, 0, 1)
+
+
 L2 = L2Loss()
 L1 = L1Loss()
+ssim = SSIM()
+
 
 def merge_and_split_predictions(pred1, pred2):
     merged = {}
@@ -55,6 +96,9 @@ class GaussianLoss(MultiLoss):
         self.pipeline = DummyPipeline()
         # bg_color
         self.register_buffer('bg_color', torch.tensor([0.0, 0.0, 0.0]).cuda())
+
+        image_grid = torch.flip(generate_grid((256, 256)), [-1])
+        self.register_buffer('image_grid', image_grid)
         
     def get_name(self):
         return f'GaussianLoss(ssim_weight={self.ssim_weight})'
@@ -80,6 +124,11 @@ class GaussianLoss(MultiLoss):
         rendered_images = []
         rendered_feats = []
         gt_images = []
+        rendered_depths = []
+        gt_depths = []
+        rpj_images = []
+        rec_tgts = []
+        rpj_masks = []
 
         for i in range(len(pred)):
             # get gaussian model
@@ -97,7 +146,20 @@ class GaussianLoss(MultiLoss):
                 rendered_output = render(camera, gaussians, self.pipeline, self.bg_color)
                 rendered_images.append(rendered_output['render'])
                 rendered_feats.append(rendered_output['feature_map'])
+                rendered_depths.append(rendered_output['depth'])
                 gt_images.append(target_view_list[j]['img'][i] * 0.5 + 0.5)
+                gt_depths.append(target_view_list[j]['depthmap'][i])
+
+                if j == 1:
+                # if False:
+                    rpj_image, mask = reprojector(
+                        target_view_list[1]['img'][i], self.image_grid,
+                        rendered_depths[-2],
+                        target_view_list[0]['camera_intrinsics'][i],
+                        target_intrinsics, camera.R, camera.T)
+                    rpj_images.append(rpj_image)
+                    rec_tgts.append(target_view_list[0]['img'][i])
+                    rpj_masks.append(mask.reshape(1, 1, 256, 256))
 
         rendered_images = torch.stack(rendered_images, dim=0) # B, 3, H, W
         gt_images = torch.stack(gt_images, dim=0)
@@ -107,6 +169,15 @@ class GaussianLoss(MultiLoss):
         image_loss = torch.abs(rendered_images - gt_images).mean()
         feature_loss = (1 - torch.nn.functional.cosine_similarity(rendered_feats, gt_feats, dim=1)).mean()
         loss = image_loss + self.feature_loss_weight * feature_loss
+
+        if rpj_images:
+            rpj_images = torch.cat(rpj_images)
+            rec_tgts = torch.stack(rec_tgts)
+            rpj_masks = torch.cat(rpj_masks)
+            rpj_loss = ssim(rpj_images, rec_tgts) * 0.85 + torch.abs(rpj_images - rec_tgts) * 0.15
+            rpj_loss = rpj_loss[rpj_masks.bool().expand_as(rpj_loss)].mean()
+            loss += rpj_loss * 2
+            return loss, {'image_loss': float(image_loss), 'feature_loss': float(feature_loss), 'rpj_loss': float(rpj_loss * 2)}
 
         return loss, {'image_loss': float(image_loss), 'feature_loss': float(feature_loss)}
 

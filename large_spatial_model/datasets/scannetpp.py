@@ -9,13 +9,26 @@ class Scannetpp(BaseStereoViewDataset):
     def __init__(self, *args, ROOT, **kwargs):
         self.ROOT = ROOT
         super().__init__(*args, **kwargs)
-        assert self.split == 'train' # just for training
+        # assert self.split == 'train' # just for training
         self.num_views = 3 # render third view
         self._load_data()
         
     def _load_data(self):
         # Traverse all the folders in the data_root
-        scene_names = [folder for folder in os.listdir(self.ROOT) if os.path.isdir(os.path.join(self.ROOT, folder))]
+        # scene_names = [folder for folder in os.listdir(self.ROOT) if os.path.isdir(os.path.join(self.ROOT, folder))]
+
+        # if self.split == 'train':
+        #     split_file = 'splits/nvs_sem_train_v1.txt'
+        # elif self.split == 'val':
+        #     split_file = 'splits/nvs_sem_val.txt'
+        split_file = 'splits/nvs_sem_train_v1.txt'
+        with open(osp.join(self.ROOT, split_file), 'r') as f:
+            scene_names = [line.strip() for line in f.readlines()]
+        if self.split == 'train':
+            scene_names = scene_names[:200]
+        elif self.split == 'val':
+            scene_names = scene_names[200:]
+
         # Filter out scenes without scene_data.npz
         valid_scenes = []
         for scene_name in scene_names:
@@ -50,7 +63,7 @@ class Scannetpp(BaseStereoViewDataset):
         for view_idx in [image_idx1, image_idx2, image_idx3]:
             basename = self.images[(scene_name, view_idx)]
             # Load RGB image
-            rgb_path = osp.join(self.ROOT, scene_name, 'images', f'{basename}.JPG')
+            rgb_path = osp.join(self.ROOT, scene_name, 'images', f'{basename}.jpg')
             rgb_image = imread_cv2(rgb_path)
             # Load depthmap
             depthmap_path = osp.join(self.ROOT, scene_name, 'depths', f'{basename}.png')
@@ -58,10 +71,15 @@ class Scannetpp(BaseStereoViewDataset):
             depthmap = depthmap.astype(np.float32) / 1000
             depthmap[~np.isfinite(depthmap)] = 0  # invalid
             # Load camera parameters
-            meta_path = osp.join(self.ROOT, scene_name, 'images', f'{basename}.npz')
+            # meta_path = osp.join(self.ROOT, scene_name, 'images', f'{basename}.npz')
+            # meta = np.load(meta_path)
+            # intrinsics = meta['camera_intrinsics']
+            # camera_pose = meta['camera_pose']
+            meta_path = osp.join(self.ROOT, scene_name, 'scene_metadata.npz')
             meta = np.load(meta_path)
-            intrinsics = meta['camera_intrinsics']
-            camera_pose = meta['camera_pose']
+            image_idx = np.argwhere(meta['images'] == basename).item()
+            camera_pose = meta['trajectories'][image_idx]
+            intrinsics = meta['intrinsics'][image_idx]
             # crop if necessary
             rgb_image, depthmap, intrinsics = self._crop_resize_if_necessary(
                 rgb_image, depthmap, intrinsics, resolution, rng=rng, info=view_idx)

@@ -66,7 +66,7 @@ def preprocess_scannetpp(data_root, threads_per_gpu=4):
 def process_scene(data_root, scene_name):
     pairs = []
     images_dir = os.path.join(data_root, scene_name, "images")
-    images = [os.path.splitext(file)[0] for file in os.listdir(images_dir) if file.endswith(".JPG")]
+    images = [os.path.splitext(file)[0] for file in os.listdir(images_dir) if file.endswith(".jpg")]
     images.sort()
 
     # Check validity of c2w for each image
@@ -81,7 +81,7 @@ def process_scene(data_root, scene_name):
     # generate image pairs
     slide_window = 50
     num_sub_intervals = 5
-    
+
     pairs = generate_image_pairs(data_root, scene_name, valid_images, slide_window, num_sub_intervals)
     print(f"Scene {scene_name} has {len(pairs)} image pairs and {len(valid_images)} valid images out of {len(images)} total images")
     return pairs, valid_images
@@ -121,7 +121,7 @@ def generate_image_pairs(data_root, scene_name, images, slide_window, num_sub_in
                 continue
             
             mean_iou = (iou_1 + iou_2) / 2
-            
+
             # Check which sub-interval the mean IoU falls into
             for idx, (lower, upper) in enumerate(sub_intervals):
                 if lower <= mean_iou <= upper and not interval_selected[idx]:
@@ -137,10 +137,13 @@ def load_image(data_root, scene_name, image_id):
     depth_path = f"{data_root}/{scene_name}/depths/{image_id}.png"
     depth = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED).astype(np.float32) / 1000.0
     # load camera parameters
-    meta_path = f"{data_root}/{scene_name}/images/{image_id}.npz"
+    meta_path = f"{data_root}/{scene_name}/scene_metadata.npz"
     meta = np.load(meta_path)
-    c2w = meta['camera_pose']
-    K = meta['camera_intrinsics']
+    # c2w = meta['camera_pose']
+    # K = meta['camera_intrinsics']
+    image_idx = np.argwhere(meta['images'] == image_id).item()
+    c2w = meta['trajectories'][image_idx]
+    K = meta['intrinsics'][image_idx]
     return depth, c2w, K
 
 # Unproject depthmap to point cloud and project to another camera
@@ -181,8 +184,8 @@ def calculate_iou(depth1, c2w1, K1, depth2, c2w2, K2):
     pixels_img2 = pixels_img2.T
 
     # Filter valid pixels
-    valid_mask = (pixels_img2[:, 0] >= 0) & (pixels_img2[:, 0] < w) & \
-                    (pixels_img2[:, 1] >= 0) & (pixels_img2[:, 1] < h)
+    valid_mask = (pixels_img2[:, 0] >= 0) & (pixels_img2[:, 0] < depth2.shape[1]) & \
+                 (pixels_img2[:, 1] >= 0) & (pixels_img2[:, 1] < depth2.shape[0])
     
     pixels_img2 = pixels_img2[valid_mask].long()
 
