@@ -73,7 +73,11 @@ class BaseSceneProcessor:
         depth_data = torch.stack([frame_data['depth_data'] for frame_data in frames_data.values()], axis=0)
         color_data = torch.stack([frame_data['color_data'] for frame_data in frames_data.values()], axis=0)
         pose_data = torch.stack([frame_data['pose_data'] for frame_data in frames_data.values()], axis=0)
-        
+
+        # Validate data
+        if not self._validate_scene_data(scene_path, depth_data, color_data, pose_data, intrinsics):
+            return None
+
         # 4. Process image size and resize
         batch_size, original_h, original_w = depth_data.shape
         h_ratio = self.config.target_height / original_h
@@ -147,6 +151,8 @@ class BaseSceneProcessor:
     def process_single_scene(self, scene_path: str) -> dict:
         # Load and process scene data
         scene_data = self.load_and_process_scene(scene_path)
+        if scene_data is None:
+            return False
         # save scene data
         scene_name = scene_data['scene_name']
         scene_save_path = os.path.join(self.config.save_dir, scene_name)
@@ -293,6 +299,37 @@ class BaseSceneProcessor:
             if dir_name == 'color':
                 expected_count = len(files)
             elif len(files) != expected_count:
+                return False
+
+        return True
+
+    def _validate_scene_data(self, scene_path: str, depth_data: torch.Tensor, 
+                           color_data: torch.Tensor, pose_data: torch.Tensor, 
+                           intrinsics: torch.Tensor) -> bool:
+        """
+        Validate scene data for NaN and Inf values
+        Args:
+            scene_path: path to the scene for error reporting
+            depth_data: depth tensor data
+            color_data: color tensor data
+            pose_data: pose tensor data
+            intrinsics: camera intrinsics tensor
+        Returns:
+            bool: True if data is valid, False otherwise
+        """
+        tensors_to_check = {
+            'depth': depth_data,
+            'color': color_data,
+            'pose': pose_data,
+            'intrinsics': intrinsics
+        }
+
+        for name, tensor in tensors_to_check.items():
+            if torch.isnan(tensor).any():
+                print(f"NaN values found in {name} data for scene {scene_path}")
+                return False
+            if torch.isinf(tensor).any():
+                print(f"Infinite values found in {name} data for scene {scene_path}")
                 return False
 
         return True

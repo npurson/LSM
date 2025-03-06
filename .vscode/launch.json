@@ -43,7 +43,7 @@
             "console": "integratedTerminal",
             "args": [
                 "--train_dataset",
-                "100 @ Scannetpp(split='train', ROOT='data/scannetpp_processed', resolution=(256, 256), aug_crop=16)",
+                "100 @ Scannet(split='train', ROOT='data/scannet_processed', resolution=(256, 256), aug_crop=16)",
                 "--test_dataset",
                 "100 @ Scannet(split='val', ROOT='data/scannet_processed', resolution=(256, 256))",
                 "--train_criterion",
