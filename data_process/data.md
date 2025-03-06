@@ -116,10 +116,32 @@ python download-scannetpp.py -o ./data/scannetpp --type full
 ### 2. Data Processing
 ```bash
 # Process raw data
-python tools/process_scannetpp.py \
-    --dataset_path ./data/scannetpp \
-    --output_path ./data/scannetpp_processed \
-    --export_label_mapping
+python -m data_process.scannet.scannet_processor \
+    --root_dir data/scannet_extracted \
+    --save_dir data/scannet_processed \
+    --device cuda \
+    --num_workers 8
+```
+
+Arguments:
+- `--root_dir`: Path to the extracted ScanNet data directory (default: "data/scannet_extracted")
+  - Should contain the extracted .sens files organized by scene
+  - Each scene should have color/, depth/, pose/, and intrinsic/ subdirectories
+
+- `--save_dir`: Path where processed data will be saved (default: "data/scannet_processed")
+  - Will create if directory doesn't exist
+  - Processed data will be organized by scene with standardized format
+
+- `--device`: Computing device to use (default: "cuda")
+  - "cuda": Use GPU acceleration (recommended)
+  - "cpu": Use CPU only (slower)
+
+- `--num_workers`: Number of parallel processing workers (default: 8)
+  - Higher values may speed up processing but use more memory
+  - Recommended: Set to number of CPU cores or less
+
+Note: Ensure sufficient disk space in save_dir (>500GB recommended for full dataset)
+
 ```
 
 ### 3. Data Structure

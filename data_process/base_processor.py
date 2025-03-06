@@ -12,10 +12,9 @@ import random
 import cv2
 
 class BaseSceneProcessorConfig:
-    def __init__(self, root_dir: str, save_dir: str, name: str, device: torch.device, num_workers: int = 16):
+    def __init__(self, root_dir: str, save_dir: str, device: torch.device, num_workers: int = 16):
         self.root_dir = root_dir
         self.save_dir = save_dir
-        self.name = name
         self.device = device
         self.load_frame_parallel = False
         self.target_height = 480
@@ -215,10 +214,26 @@ class BaseSceneProcessor:
         for scene_path in tqdm.tqdm(self.scene_paths):
             self.process_single_scene(scene_path)
         
-    def process_all_scenes_parallel(self) -> list:
+    def process_all_scenes_parallel(self):
         """
         Process all scenes in parallel with tasks distributed across available GPUs
         """
+        # Filter out processed scenes
+        unprocessed_scenes = []
+        for scene_path in self.scene_paths:
+            scene_name = os.path.basename(scene_path)
+            scene_save_path = os.path.join(self.config.save_dir, scene_name)
+            
+            if os.path.exists(scene_save_path):
+                if self.is_scene_processed(scene_save_path):
+                    print(f"Skipping already processed scene: {scene_name}")
+                    continue
+            unprocessed_scenes.append(scene_path)
+
+        if not unprocessed_scenes:
+            print("All scenes have been processed!")
+            return
+        
         # Get number of available GPUs
         num_gpus = torch.cuda.device_count()
         if num_gpus == 0:
@@ -228,23 +243,56 @@ class BaseSceneProcessor:
         workers_per_gpu = max(1, self.config.num_workers // num_gpus)
         total_workers = workers_per_gpu * num_gpus
         
-        print(f"Processing {len(self.scene_paths)} scenes with {total_workers} workers across {num_gpus} GPUs "
+        print(f"Processing {len(unprocessed_scenes)} scenes with {total_workers} workers across {num_gpus} GPUs "
               f"({workers_per_gpu} workers per GPU)...")
         
         # Distribute scenes across GPUs
         with ProcessPoolExecutor(max_workers=total_workers) as executor:
             # Create tasks with GPU assignments
             futures = []
-            for i, scene_path in enumerate(self.scene_paths):
+            for i, scene_path in enumerate(unprocessed_scenes):
                 gpu_id = i % num_gpus  # Distribute scenes across GPUs in round-robin fashion
                 futures.append(
                     executor.submit(self._process_scene_with_gpu, scene_path, gpu_id)
                 )
             
             # Process results with progress bar
-            for future in tqdm.tqdm(futures, total=len(self.scene_paths)):
+            for future in tqdm.tqdm(futures, total=len(unprocessed_scenes)):
                 try:
                     future.result()
                 except Exception as e:
                     print(f"Error in processing scene: {e}")
                     continue
+
+    def is_scene_processed(self, scene_save_path):
+        """Check if a scene has been fully processed"""
+        # Check required directories and their contents
+        required_dirs = {
+            'color': '.png',
+            'depth': '.png',
+            'pose': '.npz'
+        }
+        
+        for dir_name, file_ext in required_dirs.items():
+            dir_path = os.path.join(scene_save_path, dir_name)
+            # Check if directory exists
+            if not os.path.isdir(dir_path):
+                return False
+            
+            # Check if directory contains files with correct extension
+            files = [f for f in os.listdir(dir_path) if f.endswith(file_ext)]
+            if not files:
+                return False
+            
+            # Check if all frame indices are continuous
+            frame_indices = sorted([int(os.path.splitext(f)[0]) for f in files])
+            if not frame_indices:
+                return False
+            
+            # Check if the number of files matches across directories
+            if dir_name == 'color':
+                expected_count = len(files)
+            elif len(files) != expected_count:
+                return False
+
+        return True

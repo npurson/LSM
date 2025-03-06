@@ -5,15 +5,13 @@ import cv2
 import json
 import re
 import torch
-import multiprocessing as mp
-import logging
 from typing import Dict, List
+import argparse
 
-logger = logging.getLogger(__name__)
 
 class ScanNetConfig(BaseSceneProcessorConfig):
-    def __init__(self, root_dir: str, save_dir: str, name: str, device: torch.device, num_workers: int = 16):
-        super().__init__(root_dir, save_dir, name, device, num_workers)
+    def __init__(self, root_dir: str, save_dir: str, device: torch.device, num_workers: int = 16):
+        super().__init__(root_dir, save_dir, device, num_workers)
 
 class ScanNetProcessor(BaseSceneProcessor):
     def __init__(self, config: ScanNetConfig = None):
@@ -97,14 +95,13 @@ class ScanNetProcessor(BaseSceneProcessor):
             raise e
 
 if __name__ == "__main__":
-    mp.set_start_method('spawn')
-    config = ScanNetConfig(
-        root_dir="data/scannet_extracted", 
-        save_dir="data/scannet_processed", 
-        name="scannet", 
-        device=torch.device("cuda"),
-        num_workers=12
-    )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root_dir", type=str, default="data/scannet_extracted")
+    parser.add_argument("--save_dir", type=str, default="data/scannet_processed")
+    parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--num_workers", type=int, default=8)
+    args = parser.parse_args()
+    config = ScanNetConfig(args.root_dir, args.save_dir, args.name, args.device, args.num_workers)
     processor = ScanNetProcessor(config)
     processor.process_all_scenes_parallel()
         
