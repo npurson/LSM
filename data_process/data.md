@@ -121,7 +121,9 @@ Arguments:
 Note: Ensure sufficient disk space in save_dir (>500GB recommended for full dataset)
 
 ### 4. Data Structure
-After processing, the ScanNet data will be organized in the following structure:
+After processing, the ScanNet data will be organized in the 
+following structure:
+```
 data/scannet_processed/
 ├── scene0000_00/
 │   ├── color/         # Directory containing RGB images
@@ -135,7 +137,7 @@ data/scannet_processed/
 │       └── ...        # Additional camera pose files
 ├── scene0000_01/
 └── ...                 # Additional scenes
-
+```
 ## Common Issues
 
 ### 1. Download Issues
