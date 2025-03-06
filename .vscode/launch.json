@@ -5,6 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "scannet_processor.py",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "data_process.scannet.scannet_processor",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "demo.py",
             "type": "debugpy",
             "request": "launch",
@@ -36,7 +43,7 @@
             "console": "integratedTerminal",
             "args": [
                 "--train_dataset",
-                "100 @ Scannetpp(split='train', ROOT='data/scannetpp_processed', resolution=(256, 256), aug_crop=16)",
+                "100 @ Scannet(split='train', ROOT='data/scannet_processed', resolution=(256, 256), aug_crop=16)",
                 "--test_dataset",
                 "100 @ Scannet(split='val', ROOT='data/scannet_processed', resolution=(256, 256))",
                 "--train_criterion",

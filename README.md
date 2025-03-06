@@ -23,6 +23,7 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
 - [Get Started](#get-started)
   - [Installation](#installation)
   - [Usage](#usage)
+- [Updates](#updates)
 - [Acknowledgement](#acknowledgement)
 - [Citation](#citation)
 
@@ -137,6 +138,10 @@ https://github.com/user-attachments/assets/e6a1d956-565d-4a61-8d73-db8e7610fb21
    # Image resolution for processing
    --resolution "256"
    ```
+
+## Updates
+
+**[2025-03-06]** Added ScanNet data preprocessing pipeline improvements. For detailed instructions, please refer to [data_process/data.md](data_process/data.md).
 
 ## Acknowledgement
 

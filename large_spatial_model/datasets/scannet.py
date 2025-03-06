@@ -4,6 +4,7 @@ from dust3r.datasets.base.base_stereo_view_dataset import BaseStereoViewDataset
 import numpy as np
 import cv2
 from dust3r.utils.image import imread_cv2
+import itertools
 
 class Scannet(BaseStereoViewDataset):
     def __init__(self, *args, ROOT, **kwargs):
@@ -15,15 +16,6 @@ class Scannet(BaseStereoViewDataset):
     def _load_data(self):
         # Traverse all the folders in the data_root
         scene_names = [folder for folder in os.listdir(self.ROOT) if os.path.isdir(os.path.join(self.ROOT, folder))]
-        # Filter out scenes without scene_data.npz
-        valid_scenes = []
-        for scene_name in scene_names:
-            scene_data_path = osp.join(self.ROOT, scene_name, "scene_data.npz")
-            if osp.exists(scene_data_path):
-                valid_scenes.append(scene_name)
-            else:
-                print(f"Skipping {scene_name}: scene_data.npz not found")
-        scene_names = valid_scenes
         scene_names.sort()
         if self.split == 'train':
             scene_names = scene_names[:-150]
@@ -31,12 +23,17 @@ class Scannet(BaseStereoViewDataset):
             scene_names = scene_names[-150:]
         # merge all pairs and images
         pairs = [] # (scene_name, image_idx1, image_idx2)
-        images = {} # (scene_name, image_idx) -> image_path
+        images = {} # scene_name -> list of image_paths
         for scene_name in scene_names:
-            scene_path = osp.join(self.ROOT, scene_name, "scene_data.npz")
-            scene_data = np.load(scene_path)
-            pairs.extend([(scene_name, *pair) for pair in scene_data['pairs']])
-            images.update({(scene_name, idx): path for idx, path in enumerate(scene_data['images'])})
+            images_paths = os.listdir(osp.join(self.ROOT, scene_name, 'color'))
+            images_paths.sort()
+            frame_num = len(images_paths)
+            scene_combinations = [(i, j)
+                                for i, j in itertools.combinations(range(frame_num), 2)
+                                if 0 < abs(i - j) <= 30 and abs(i - j) % 5 == 0]
+            pairs.extend([(scene_name, *pair) for pair in scene_combinations])
+            images[scene_name] = images_paths
+            
         self.pairs = pairs
         self.images = images
         
@@ -44,23 +41,23 @@ class Scannet(BaseStereoViewDataset):
         return len(self.pairs)
     
     def _get_views(self, idx, resolution, rng):
-        scene_name, image_idx1, image_idx2, _ = self.pairs[idx]
+        scene_name, image_idx1, image_idx2 = self.pairs[idx]
         image_idx1 = int(image_idx1)
         image_idx2 = int(image_idx2)
         image_idx3 = int((image_idx1 + image_idx2) / 2)
         views = []
         for view_idx in [image_idx1, image_idx2, image_idx3]:
-            basename = self.images[(scene_name, view_idx)]
+            basename = os.path.basename(self.images[scene_name][view_idx]).split('.')[0]
             # Load RGB image
-            rgb_path = osp.join(self.ROOT, scene_name, 'images', f'{basename}.jpg')
+            rgb_path = osp.join(self.ROOT, scene_name, 'color', f'{basename}.png')
             rgb_image = imread_cv2(rgb_path)
             # Load depthmap
-            depthmap_path = osp.join(self.ROOT, scene_name, 'depths', f'{basename}.png')
+            depthmap_path = osp.join(self.ROOT, scene_name, 'depth', f'{basename}.png')
             depthmap = imread_cv2(depthmap_path, cv2.IMREAD_UNCHANGED)
             depthmap = depthmap.astype(np.float32) / 1000
             depthmap[~np.isfinite(depthmap)] = 0  # invalid
             # Load camera parameters
-            meta_path = osp.join(self.ROOT, scene_name, 'images', f'{basename}.npz')
+            meta_path = osp.join(self.ROOT, scene_name, 'pose', f'{basename}.npz')
             meta = np.load(meta_path)
             intrinsics = meta['camera_intrinsics']
             camera_pose = meta['camera_pose']
