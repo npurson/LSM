@@ -74,8 +74,18 @@ class BaseSceneProcessor:
         color_data = torch.stack([frame_data['color_data'] for frame_data in frames_data.values()], axis=0)
         pose_data = torch.stack([frame_data['pose_data'] for frame_data in frames_data.values()], axis=0)
 
-        # Validate data
-        if not self._validate_scene_data(scene_path, depth_data, color_data, pose_data, intrinsics):
+        # Filter out invalid frames
+        valid_mask = self._get_valid_frame_mask(scene_path, depth_data, color_data, pose_data)
+        if not valid_mask.any():
+            print(f"No valid frames found in scene {scene_path}")
+            return None
+
+        depth_data = depth_data[valid_mask]
+        color_data = color_data[valid_mask]
+        pose_data = pose_data[valid_mask]
+
+        # Validate intrinsics separately
+        if not self._validate_intrinsics(scene_path, intrinsics):
             return None
 
         # 4. Process image size and resize
@@ -303,33 +313,50 @@ class BaseSceneProcessor:
 
         return True
 
-    def _validate_scene_data(self, scene_path: str, depth_data: torch.Tensor, 
-                           color_data: torch.Tensor, pose_data: torch.Tensor, 
-                           intrinsics: torch.Tensor) -> bool:
+    def _get_valid_frame_mask(self, scene_path: str, depth_data: torch.Tensor, 
+                            color_data: torch.Tensor, pose_data: torch.Tensor) -> torch.Tensor:
         """
-        Validate scene data for NaN and Inf values
+        Get mask of valid frames
         Args:
             scene_path: path to the scene for error reporting
             depth_data: depth tensor data
             color_data: color tensor data
             pose_data: pose tensor data
+        Returns:
+            torch.Tensor: boolean mask indicating valid frames
+        """
+        frame_count = len(depth_data)
+        valid_mask = torch.ones(frame_count, dtype=torch.bool)
+
+        # Check each frame
+        for i in range(frame_count):
+            frame_valid = True
+            tensors_to_check = {
+                'depth': depth_data[i],
+                'color': color_data[i],
+                'pose': pose_data[i]
+            }
+
+            for name, tensor in tensors_to_check.items():
+                if torch.isnan(tensor).any() or torch.isinf(tensor).any():
+                    print(f"Invalid {name} data found in frame {i} of scene {scene_path}")
+                    frame_valid = False
+                    break
+
+            valid_mask[i] = frame_valid
+
+        return valid_mask
+
+    def _validate_intrinsics(self, scene_path: str, intrinsics: torch.Tensor) -> bool:
+        """
+        Validate intrinsics data
+        Args:
+            scene_path: path to the scene for error reporting
             intrinsics: camera intrinsics tensor
         Returns:
-            bool: True if data is valid, False otherwise
+            bool: True if intrinsics are valid, False otherwise
         """
-        tensors_to_check = {
-            'depth': depth_data,
-            'color': color_data,
-            'pose': pose_data,
-            'intrinsics': intrinsics
-        }
-
-        for name, tensor in tensors_to_check.items():
-            if torch.isnan(tensor).any():
-                print(f"NaN values found in {name} data for scene {scene_path}")
-                return False
-            if torch.isinf(tensor).any():
-                print(f"Infinite values found in {name} data for scene {scene_path}")
-                return False
-
+        if torch.isnan(intrinsics).any() or torch.isinf(intrinsics).any():
+            print(f"Invalid intrinsics found in scene {scene_path}")
+            return False
         return True

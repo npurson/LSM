@@ -101,7 +101,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--num_workers", type=int, default=8)
     args = parser.parse_args()
-    config = ScanNetConfig(args.root_dir, args.save_dir, args.name, args.device, args.num_workers)
+    config = ScanNetConfig(args.root_dir, args.save_dir, args.device, args.num_workers)
     processor = ScanNetProcessor(config)
     processor.process_all_scenes_parallel()
         

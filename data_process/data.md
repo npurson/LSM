@@ -1,12 +1,20 @@
 # Data Preparation Guide for ScanNet and ScanNet++
 
 ## Table of Contents
-- [Overview](#overview)
-- [Prerequisites](#prerequisites)
-- [ScanNet Data Preparation](#scannet-data-preparation)
-- [ScanNet++ Data Preparation](#scannet-data-preparation)
-- [Directory Structure](#directory-structure)
-- [Common Issues](#common-issues)
+- [Data Preparation Guide for ScanNet and ScanNet++](#data-preparation-guide-for-scannet-and-scannet)
+  - [Table of Contents](#table-of-contents)
+  - [Overview](#overview)
+  - [Prerequisites](#prerequisites)
+  - [ScanNet Data Preparation](#scannet-data-preparation)
+    - [1. Download ScanNet Data](#1-download-scannet-data)
+    - [2. Extract .sens Files](#2-extract-sens-files)
+    - [3. Data Processing](#3-data-processing)
+    - [4. Data Structure](#4-data-structure)
+  - [Common Issues](#common-issues)
+    - [1. Download Issues](#1-download-issues)
+    - [2. Processing Issues](#2-processing-issues)
+    - [3. Troubleshooting](#3-troubleshooting)
+  - [Additional Notes](#additional-notes)
 
 ## Overview
 This document provides instructions for preparing ScanNet and ScanNet++ datasets for training and evaluation.
@@ -86,36 +94,6 @@ data/scannet_extracted/
 ### 3. Data Processing
 ```bash
 # Process raw data
-python -m data_process.scannet.scannet_processor
-```
-
-### 4. Data Structure
-After processing, the ScanNet data should be organized as follows:
-```
-data/scannet_processed/
-├── scans/
-│   ├── scene0000_00/
-│   │   ├── scene0000_00.txt       # Point cloud data
-│   │   ├── scene0000_00_vh_clean_2.ply
-│   │   ├── scene0000_00_vh_clean_2.labels.ply
-│   │   └── scene0000_00.aggregation.json
-│   └── ...
-├── scannetv2_train.txt
-├── scannetv2_val.txt
-└── scannetv2_test.txt
-```
-
-## ScanNet++ Data Preparation
-
-### 1. Download ScanNet++ Data
-```bash
-# Download ScanNet++ data (requires registration)
-python download-scannetpp.py -o ./data/scannetpp --type full
-```
-
-### 2. Data Processing
-```bash
-# Process raw data
 python -m data_process.scannet.scannet_processor \
     --root_dir data/scannet_extracted \
     --save_dir data/scannet_processed \
@@ -142,38 +120,21 @@ Arguments:
 
 Note: Ensure sufficient disk space in save_dir (>500GB recommended for full dataset)
 
-```
-
-### 3. Data Structure
-After processing, the ScanNet++ data should be organized as follows:
-```
-data/scannetpp_processed/
-├── scans/
-│   ├── scene0000_00/
-│   │   ├── scene0000_00.txt       # Point cloud data
-│   │   ├── scene0000_00.ply
-│   │   ├── scene0000_00.labels.ply
-│   │   └── instance_info.json
-│   └── ...
-├── scannetpp_train.txt
-├── scannetpp_val.txt
-└── scannetpp_test.txt
-```
-
-## Directory Structure
-The final directory structure should look like this:
-```
-./
-├── data/
-│   ├── scannet_processed/
-│   │   └── [processed ScanNet data]
-│   └── scannetpp_processed/
-│       └── [processed ScanNet++ data]
-├── tools/
-│   ├── process_scannet.py
-│   └── process_scannetpp.py
-└── requirements.txt
-```
+### 4. Data Structure
+After processing, the ScanNet data will be organized in the following structure:
+data/scannet_processed/
+├── scene0000_00/
+│   ├── color/         # Directory containing RGB images
+│   │   ├── 000000.png
+│   │   └── ...        # Additional RGB images
+│   ├── depth/         # Directory containing Depth maps
+│   │   ├── 000000.png
+│   │   └── ...        # Additional Depth maps
+│   └── pose/          # Directory containing Camera poses
+│       ├── 000000.npz
+│       └── ...        # Additional camera pose files
+├── scene0000_01/
+└── ...                 # Additional scenes
 
 ## Common Issues
 
