@@ -5,6 +5,13 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "scannet_processor.py",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "data_process.scannet.scannet_processor",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "demo.py",
             "type": "debugpy",
             "request": "launch",
