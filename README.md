@@ -31,10 +31,10 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
 ## Feature and RGB Rendering
 
 ### Feature Visualization
-[https://github.com/NVlabs/LSM/raw/main/assets/demo_videos/output_fmap_video.mp4](https://github.com/user-attachments/assets/1c4f533f-af01-49b0-beeb-f9f8793c92b7)
+https://github.com/user-attachments/assets/1c4f533f-af01-49b0-beeb-f9f8793c92b7
 
 ### RGB Color Rendering
-[https://github.com/NVlabs/LSM/raw/main/assets/demo_videos/output_images_video.mp4](https://github.com/user-attachments/assets/e984bc3c-d6f1-4b5c-8850-be00d501c683)
+https://github.com/user-attachments/assets/e984bc3c-d6f1-4b5c-8850-be00d501c683
 
 ## Get Started
 
