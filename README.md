@@ -41,54 +41,54 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
 ## Get Started
 
 ### Installation
-0. **Dowload repo:**
+1. **Download repo:**
    ````
    git clone --recurse-submodules https://github.com/NVlabs/LSM.git
    ````
-1. **Create and activate conda environment:**
+2. **Create and activate conda environment:**
    ````bash
    conda create -n lsm python=3.10
    conda activate lsm
    ````
 
-2. **Install PyTorch and related packages:**
+3. **Install PyTorch and related packages:**
    ````bash
    conda install pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 pytorch-cuda=12.1 -c pytorch -c nvidia -y
    conda install pytorch-cluster pytorch-scatter pytorch-sparse -c pyg -y
    ````
 
-3. **Install other Python dependencies:**
+4. **Install other Python dependencies:**
    ````bash
    pip install -r requirements.txt
    pip install flash-attn --no-build-isolation
    ````
 
-4. **Install PointTransformerV3:**
+5. **Install PointTransformerV3:**
    ````bash
    cd submodules/PointTransformerV3/Pointcept/libs/pointops
    python setup.py install
    cd ../../../../..
    ````
 
-5. **Install 3D Gaussian Splatting modules:**
+6. **Install 3D Gaussian Splatting modules:**
    ````bash
    pip install submodules/3d_gaussian_splatting/diff-gaussian-rasterization
    pip install submodules/3d_gaussian_splatting/simple-knn
    ````
 
-6. **Install OpenAI CLIP:**
+7. **Install OpenAI CLIP:**
    ````bash
    pip install git+https://github.com/openai/CLIP.git
    ````
 
-7. **Build croco model:**
+8. **Build croco model:**
    ````bash
    cd submodules/dust3r/croco/models/curope
    python setup.py build_ext --inplace
    cd ../../../../..
    ````
 
-8. **Download pre-trained models:**
+9. **Download pre-trained models:**
 
    The following three model weights need to be downloaded:
 
