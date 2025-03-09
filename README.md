@@ -22,7 +22,8 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
   - [RGB Color Rendering](#rgb-color-rendering)
 - [Get Started](#get-started)
   - [Installation](#installation)
-  - [Usage](#usage)
+  - [Data Preparation](#data-preparation)
+  - [Inference](#inference)
 - [Updates](#updates)
 - [Acknowledgement](#acknowledgement)
 - [Citation](#citation)
@@ -105,7 +106,31 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
    gdown 1q57nbRJpPhrdf1m7XZTkBfUIskpgnbri -O checkpoints/pretrained_models/checkpoint-final.pth
    ```
 
-### Usage
+### Data Preparation
+1. **For training**: The model can be trained on ScanNet and ScanNet++ datasets. 
+   - Both datasets require signing agreements to access
+   - Detailed data preparation instructions are available in [data_process/data.md](data_process/data.md)
+
+   Quick overview of data structure after processing:
+   ```bash
+   # For ScanNet
+   data/scannet_processed/
+   └── {scene_id}/
+       ├── color/      # RGB images
+       ├── depth/      # Depth maps
+       └── pose/       # Camera parameters
+
+   # For ScanNet++
+   data/scannetpp_render/
+   └── {scene_id}/
+       └── dslr/
+           ├── camera/                    # Camera parameters
+           ├── render_depth/              # Depth maps
+           ├── rgb_resized_undistorted/   # RGB images
+           └── mask_resized_undistorted/  # Masks
+   ```
+
+### Inference
 1. Data preparation
    - Prepare any two images of indoor scenes (preferably indoor images, as the model is trained on indoor scene datasets).
    - Place your images in a directory of your choice.
@@ -142,7 +167,9 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
 
 ## Updates
 
-**[2025-03-06]** Added ScanNet data preprocessing pipeline improvements. For detailed instructions, please refer to [data_process/data.md](data_process/data.md).
+**[2024-03-09]** Added ScanNet++ data preprocessing pipeline. For detailed instructions, please refer to [data_process/data.md](data_process/data.md).
+
+**[2024-03-06]** Added ScanNet data preprocessing pipeline improvements. For detailed instructions, please refer to [data_process/data.md](data_process/data.md).
 
 ## Acknowledgement
 
@@ -154,6 +181,8 @@ This work is built on many amazing research works and open-source projects, than
 - [Point Transformer V3](https://github.com/Pointcept/PointTransformerV3)
 - [pixelSplat](https://github.com/dcharatan/pixelsplat)
 - [Feature 3DGS](https://github.com/ShijieZhou-UCLA/feature-3dgs)
+- [ScanNet](https://github.com/ScanNet/ScanNet)
+- [ScanNet++](https://github.com/scannetpp/scannetpp)
 
 ## Citation
 If you find our work useful in your research, please consider giving a star :star: and citing the following paper :pencil:.
