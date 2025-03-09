@@ -10,11 +10,10 @@
     - [2. Extract .sens Files](#2-extract-sens-files)
     - [3. Data Processing](#3-data-processing)
     - [4. Data Structure](#4-data-structure)
-  - [Common Issues](#common-issues)
-    - [1. Download Issues](#1-download-issues)
-    - [2. Processing Issues](#2-processing-issues)
-    - [3. Troubleshooting](#3-troubleshooting)
-  - [Additional Notes](#additional-notes)
+  - [ScanNet++ Data Preparation](#scannet-data-preparation-1)
+    - [1. Download ScanNet++ Data](#1-download-scannet-data-1)
+    - [2. Data Processing](#2-data-processing)
+    - [3. Data Structure](#3-data-structure)
 
 ## Overview
 This document provides instructions for preparing ScanNet and ScanNet++ datasets for training and evaluation.
@@ -138,26 +137,89 @@ data/scannet_processed/
 ├── scene0000_01/
 └── ...                 # Additional scenes
 ```
-## Common Issues
 
-### 1. Download Issues
-- Ensure you have registered and obtained proper access credentials
-- Check network connection and proxy settings
-- Verify sufficient disk space
+## ScanNet++ Data Preparation
 
-### 2. Processing Issues
-- Memory errors: Try processing with smaller batch sizes
-- Missing files: Verify complete dataset download
-- Label mapping errors: Check for updated label mapping files
+### 1. Download ScanNet++ Data
+1. Visit the [official ScanNet++ repository](https://github.com/scannetpp/scannetpp)
+2. Fill out the Terms of Use agreement
+3. You will receive a download script and token (valid for 14 days)
 
-### 3. Troubleshooting
-If you encounter any issues:
-1. Check the log files
-2. Verify file permissions
-3. Ensure all prerequisites are properly installed
-4. Check system resources (RAM, disk space)
+To download the dataset:
+1. Navigate to the download script directory
+2. Edit `download_scannetpp.yml` configuration file:
+   - Set your token
+   - Configure download directory
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+4. Run the download script:
+```bash
+python download_scannetpp.py download_scannetpp.yml
+```
 
-## Additional Notes
-- Backup your raw data before processing
-- Consider using symbolic links for large datasets
-- Monitor system resources during processing
+### 2. Data Processing
+For DSLR format data processing, follow these steps:
+
+1. Create and setup rendering environment:
+```bash
+# Create new conda environment
+conda create -n renderpy python=3.9
+conda activate renderpy
+
+# Install Python dependencies
+pip install imageio numpy tqdm opencv-python pyyaml munch
+
+# Clone and build renderpy
+cd data_process/scannetpp
+git clone --recursive https://github.com/liu115/renderpy
+cd renderpy
+
+# Install system dependencies
+sudo apt-get install build-essential cmake git
+sudo apt-get install libgl1-mesa-dev libglu1-mesa-dev libxrandr-dev libxext-dev
+sudo apt-get install libopencv-dev
+sudo apt-get install libgflags-dev libboost-all-dev
+
+# Install renderpy
+pip install . && cd ..
+```
+
+2. Configure rendering:
+- Edit `data_process/scannetpp/common/configs/render.yml`
+- Update `data_root` and `output_dir` paths
+
+3. Run rendering process:
+```bash
+python -m common.render common/configs/render.yml
+```
+
+
+### 3. Data Structure
+The processed ScanNet++ data will be organized as follows:
+```
+data/scannetpp_render/
+└── {scene_id}/ # e.g., fb564c935d
+    └── {device}/ # device can be 'dslr' or 'iphone'
+        ├── camera/ # Camera parameter files
+        │   ├── {frame_id}.npz # Contains intrinsic and extrinsic matrices
+        │   └── ...
+        ├── render_depth/ # Rendered depth maps
+        │   ├── {frame_id}.png # 16-bit depth maps (depth * 1000)
+        │   └── ...
+        ├── rgb_resized_undistorted/ # Processed RGB images
+        │   ├── {frame_id}.JPG # Undistorted and resized color images
+        │   └── ...
+        └── mask_resized_undistorted/ # Processed mask images
+            ├── {frame_id}.png # Binary masks (0 or 255)
+            └── ...
+```
+
+Each directory contains:
+- `camera/`: Camera parameter files in .npz format, containing:
+  - `intrinsic`: 3x3 camera intrinsic matrix
+  - `extrinsic`: 4x4 camera-to-world transformation matrix
+- `render_depth/`: Rendered depth maps stored as 16-bit PNG files (depth values * 1000)
+- `rgb_resized_undistorted/`: Undistorted and resized RGB images
+- `mask_resized_undistorted/`: Undistorted and resized binary mask images (255 for valid pixels, 0 for invalid)
