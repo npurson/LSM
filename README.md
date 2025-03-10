@@ -23,6 +23,7 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
 - [Get Started](#get-started)
   - [Installation](#installation)
   - [Data Preparation](#data-preparation)
+  - [Training](#training)
   - [Inference](#inference)
 - [Updates](#updates)
 - [Acknowledgement](#acknowledgement)
@@ -129,6 +130,20 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
            ├── rgb_resized_undistorted/   # RGB images
            └── mask_resized_undistorted/  # Masks
    ```
+
+### Training
+After preparing the datasets, you can train the model using the following command:
+```bash
+bash scripts/train.sh
+```
+
+The training results will be saved to `SAVE_DIR`. By default, it is set to `checkpoints/output`.
+
+Optional parameters in `scripts/train.sh`:
+```bash
+# Directory to save training outputs
+--output_dir "checkpoints/output"
+```
 
 ### Inference
 1. Data preparation
