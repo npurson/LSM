@@ -7,3 +7,6 @@
 [submodule "submodules/lang_seg"]
 	path = submodules/lang_seg
 	url = https://github.com/isl-org/lang-seg.git
+[submodule "data_process/scannetpp"]
+	path = data_process/scannetpp
+	url = https://github.com/zjrandom951/scannetpp_lsm.git

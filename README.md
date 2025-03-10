@@ -22,7 +22,8 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
   - [RGB Color Rendering](#rgb-color-rendering)
 - [Get Started](#get-started)
   - [Installation](#installation)
-  - [Usage](#usage)
+  - [Data Preparation](#data-preparation)
+  - [Inference](#inference)
 - [Updates](#updates)
 - [Acknowledgement](#acknowledgement)
 - [Citation](#citation)
@@ -31,62 +32,63 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
 ## Feature and RGB Rendering
 
 ### Feature Visualization
-https://github.com/user-attachments/assets/a97084ab-deab-433f-9a72-44704b1ee71a
+[https://github.com/user-attachments/assets/1c4f533f-af01-49b0-beeb-f9f8793c92b7](https://github.com/user-attachments/assets/f53990f9-96a4-4a2e-8378-da5b27260235)
 
 ### RGB Color Rendering
-https://github.com/user-attachments/assets/e6a1d956-565d-4a61-8d73-db8e7610fb21
+[https://github.com/user-attachments/assets/e984bc3c-d6f1-4b5c-8850-be00d501c683](https://github.com/user-attachments/assets/d0b09707-c74a-4959-8c58-75771e53995e
+)
 
 ## Get Started
 
 ### Installation
-0. **Dowload repo:**
+1. **Download repo:**
    ````
    git clone --recurse-submodules https://github.com/NVlabs/LSM.git
    ````
-1. **Create and activate conda environment:**
+2. **Create and activate conda environment:**
    ````bash
    conda create -n lsm python=3.10
    conda activate lsm
    ````
 
-2. **Install PyTorch and related packages:**
+3. **Install PyTorch and related packages:**
    ````bash
    conda install pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 pytorch-cuda=12.1 -c pytorch -c nvidia -y
    conda install pytorch-cluster pytorch-scatter pytorch-sparse -c pyg -y
    ````
 
-3. **Install other Python dependencies:**
+4. **Install other Python dependencies:**
    ````bash
    pip install -r requirements.txt
    pip install flash-attn --no-build-isolation
    ````
 
-4. **Install PointTransformerV3:**
+5. **Install PointTransformerV3:**
    ````bash
    cd submodules/PointTransformerV3/Pointcept/libs/pointops
    python setup.py install
    cd ../../../../..
    ````
 
-5. **Install 3D Gaussian Splatting modules:**
+6. **Install 3D Gaussian Splatting modules:**
    ````bash
    pip install submodules/3d_gaussian_splatting/diff-gaussian-rasterization
    pip install submodules/3d_gaussian_splatting/simple-knn
    ````
 
-6. **Install OpenAI CLIP:**
+7. **Install OpenAI CLIP:**
    ````bash
    pip install git+https://github.com/openai/CLIP.git
    ````
 
-7. **Build croco model:**
+8. **Build croco model:**
    ````bash
    cd submodules/dust3r/croco/models/curope
    python setup.py build_ext --inplace
    cd ../../../../..
    ````
 
-8. **Download pre-trained models:**
+9. **Download pre-trained models:**
 
    The following three model weights need to be downloaded:
 
@@ -104,7 +106,31 @@ https://github.com/user-attachments/assets/e6a1d956-565d-4a61-8d73-db8e7610fb21
    gdown 1q57nbRJpPhrdf1m7XZTkBfUIskpgnbri -O checkpoints/pretrained_models/checkpoint-final.pth
    ```
 
-### Usage
+### Data Preparation
+1. **For training**: The model can be trained on ScanNet and ScanNet++ datasets. 
+   - Both datasets require signing agreements to access
+   - Detailed data preparation instructions are available in [data_process/data.md](data_process/data.md)
+
+   Quick overview of data structure after processing:
+   ```bash
+   # For ScanNet
+   data/scannet_processed/
+   └── {scene_id}/
+       ├── color/      # RGB images
+       ├── depth/      # Depth maps
+       └── pose/       # Camera parameters
+
+   # For ScanNet++
+   data/scannetpp_render/
+   └── {scene_id}/
+       └── dslr/
+           ├── camera/                    # Camera parameters
+           ├── render_depth/              # Depth maps
+           ├── rgb_resized_undistorted/   # RGB images
+           └── mask_resized_undistorted/  # Masks
+   ```
+
+### Inference
 1. Data preparation
    - Prepare any two images of indoor scenes (preferably indoor images, as the model is trained on indoor scene datasets).
    - Place your images in a directory of your choice.
@@ -141,7 +167,9 @@ https://github.com/user-attachments/assets/e6a1d956-565d-4a61-8d73-db8e7610fb21
 
 ## Updates
 
-**[2025-03-06]** Added ScanNet data preprocessing pipeline improvements. For detailed instructions, please refer to [data_process/data.md](data_process/data.md).
+**[2024-03-09]** Added ScanNet++ data preprocessing pipeline. For detailed instructions, please refer to [data_process/data.md](data_process/data.md).
+
+**[2024-03-06]** Added ScanNet data preprocessing pipeline improvements. For detailed instructions, please refer to [data_process/data.md](data_process/data.md).
 
 ## Acknowledgement
 
@@ -153,6 +181,8 @@ This work is built on many amazing research works and open-source projects, than
 - [Point Transformer V3](https://github.com/Pointcept/PointTransformerV3)
 - [pixelSplat](https://github.com/dcharatan/pixelsplat)
 - [Feature 3DGS](https://github.com/ShijieZhou-UCLA/feature-3dgs)
+- [ScanNet](https://github.com/ScanNet/ScanNet)
+- [ScanNet++](https://github.com/scannetpp/scannetpp)
 
 ## Citation
 If you find our work useful in your research, please consider giving a star :star: and citing the following paper :pencil:.
