@@ -110,6 +110,73 @@ class GaussianLoss(MultiLoss):
 
         return loss, {'image_loss': float(image_loss), 'feature_loss': float(feature_loss)}
 
+class TestLoss(MultiLoss):
+    def __init__(self, lables=['wall', 'floor', 'ceiling', 'chair', 'table', 'sofa', 'bed', 'other']):
+        super().__init__()
+        self.labels = lables
+        self.ssim = StructuralSimilarityIndexMeasure(data_range=1.0).cuda()
+        self.psnr = PeakSignalNoiseRatio(data_range=1.0).cuda()
+        self.lpips_vgg = lpips.LPIPS(net='vgg').cuda()
+        self.miou = JaccardIndex(num_classes=len(self.labels) + 1, task='multiclass', ignore_index=0)
+        self.accuracy = Accuracy(num_classes=len(self.labels) + 1, task='multiclass', ignore_index=0)
+        self.pipeline = DummyPipeline()
+        # bg_color
+        self.register_buffer('bg_color', torch.tensor([0.0, 0.0, 0.0]).cuda())
+        
+    def get_name(self):
+        return f'TestLoss'
+
+    def compute_loss(self, gt1, gt2, pred1, pred2, target_view=None, model=None):
+        # render images
+        # 1. merge predictions
+        pred = merge_and_split_predictions(pred1, pred2)
+        
+        # 2. calculate optimal scaling
+        pred_pts1 = pred1['means']
+        pred_pts2 = pred2['means']
+        # convert to camera1 coordinates
+        # everything is normalized w.r.t. camera of view1
+        valid1 = gt1['valid_mask'].clone()
+        valid2 = gt2['valid_mask'].clone()
+        in_camera1 = inv(gt1['camera_pose'])
+        gt_pts1 = geotrf(in_camera1, gt1['pts3d'].to(in_camera1.device))  # B,H,W,3
+        gt_pts2 = geotrf(in_camera1, gt2['pts3d'].to(in_camera1.device))  # B,H,W,3
+        scaling = find_opt_scaling(gt_pts1, gt_pts2, pred_pts1, pred_pts2, valid1=valid1, valid2=valid2)
+        
+        # 3. render images(need gaussian model, camera, pipeline)
+        rendered_images = []
+        rendered_feats = []
+        gt_images = []
+
+        for i in range(len(pred)):
+            # get gaussian model
+            gaussians = GaussianModel.from_predictions(pred[i], sh_degree=3)
+            # get camera
+            ref_camera_extrinsics = gt1['camera_pose'][i]
+            target_view_list = [gt1, gt2, target_view] # use gt1, gt2, and target_view
+            for j in range(len(target_view_list)):
+                target_extrinsics = target_view_list[j]['camera_pose'][i]
+                target_intrinsics = target_view_list[j]['camera_intrinsics'][i]
+                image_shape = target_view_list[j]['true_shape'][i]
+                scale = scaling[i]
+                camera = get_scaled_camera(ref_camera_extrinsics, target_extrinsics, target_intrinsics, scale, image_shape)
+                # render(image and features)
+                rendered_output = render(camera, gaussians, self.pipeline, self.bg_color)
+                rendered_images.append(rendered_output['render'])
+                rendered_feats.append(rendered_output['feature_map'])
+                gt_images.append(target_view_list[j]['img'][i] * 0.5 + 0.5)
+
+        rendered_images = torch.stack(rendered_images, dim=0) # B, 3, H, W
+        gt_images = torch.stack(gt_images, dim=0)
+        rendered_feats = torch.stack(rendered_feats, dim=0) # B, d_feats, H, W
+        rendered_feats = model.feature_expansion(rendered_feats) # B, 512, H//2, W//2
+        gt_feats = model.lseg_feature_extractor.extract_features(gt_images) # B, 512, H//2, W//2
+        image_loss = torch.abs(rendered_images - gt_images).mean()
+        feature_loss = (1 - torch.nn.functional.cosine_similarity(rendered_feats, gt_feats, dim=1)).mean()
+        
+        loss = image_loss + feature_loss
+        return loss, {'image_loss': float(image_loss), 'feature_loss': float(feature_loss)}
+
 # loss for one batch
 def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, use_amp=False, ret=None):
     view1, view2, target_view = batch
