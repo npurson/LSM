@@ -9,7 +9,7 @@
 checkpoints/*
 
 # Datasets
-data/*
+/data
 
 # Python bytecode
 *.pyc
@@ -24,3 +24,4 @@ build/
 
 # Outputs
 outputs/
+

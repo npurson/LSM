@@ -112,24 +112,24 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
    - Both datasets require signing agreements to access
    - Detailed data preparation instructions are available in [data_process/data.md](data_process/data.md)
 
-   Quick overview of data structure after processing:
-   ```bash
-   # For ScanNet
-   data/scannet_processed/
-   └── {scene_id}/
-       ├── color/      # RGB images
-       ├── depth/      # Depth maps
-       └── pose/       # Camera parameters
+2. **For testing**: 
+   - Download test dataset:
+     ```bash
+     # Download and extract test dataset
+     wget https://huggingface.co/datasets/Journey9ni/LSM/resolve/main/scannet_test.tar
+     tar -xf scannet_test.tar
+     ```
 
-   # For ScanNet++
-   data/scannetpp_render/
-   └── {scene_id}/
-       └── dslr/
-           ├── camera/                    # Camera parameters
-           ├── render_depth/              # Depth maps
-           ├── rgb_resized_undistorted/   # RGB images
-           └── mask_resized_undistorted/  # Masks
-   ```
+   - Data structure:
+     ```bash
+     data/scannet_test/
+     └── {scene_id}/
+         ├── depth/                     # Depth maps
+         ├── images/                    # RGB images 
+         ├── labels/                    # Semantic labels
+         ├── selected_seqs_test.json    # Test sequence parameters
+         └── selected_seqs_train.json   # Train sequence parameters
+     ```
 
 ### Training
 After preparing the datasets, you can train the model using the following command:
