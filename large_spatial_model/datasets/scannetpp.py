@@ -5,6 +5,9 @@ import numpy as np
 import cv2
 from dust3r.utils.image import imread_cv2
 
+from ..datasets_preprocess.scannetpp_preprocess import calculate_iou
+
+
 class Scannetpp(BaseStereoViewDataset):
     def __init__(self, *args, ROOT, **kwargs):
         self.ROOT = ROOT
@@ -27,7 +30,7 @@ class Scannetpp(BaseStereoViewDataset):
         if self.split == 'train':
             scene_names = scene_names[:200]
         elif self.split == 'val':
-            scene_names = scene_names[200:]
+            scene_names = scene_names[:5]
 
         # Filter out scenes without scene_data.npz
         valid_scenes = []
@@ -58,9 +61,17 @@ class Scannetpp(BaseStereoViewDataset):
         scene_name, image_idx1, image_idx2, _ = self.pairs[idx]
         image_idx1 = int(image_idx1)
         image_idx2 = int(image_idx2)
-        image_idx3 = int((image_idx1 + image_idx2) / 2)
         views = []
-        for view_idx in [image_idx1, image_idx2, image_idx3]:
+        interval = image_idx2 - image_idx1
+        src_view_idxes = [idx_ for idx_ in range(image_idx1 - interval * 2, image_idx2 + interval * 2, max(interval // 2, 1)) if idx_ not in [image_idx1, image_idx2]]
+        src_view_idxes = [image_idx1, image_idx2] + src_view_idxes
+        for i, view_idx in enumerate(src_view_idxes):
+            if view_idx < 0 or view_idx >= len(self.images):
+                continue
+            if (scene_name, view_idx) not in self.images:
+                print(f"Skipping {scene_name} {view_idx}: image not found")
+                continue
+
             basename = self.images[(scene_name, view_idx)]
             # Load RGB image
             rgb_path = osp.join(self.ROOT, scene_name, 'images', f'{basename}.jpg')
@@ -83,6 +94,17 @@ class Scannetpp(BaseStereoViewDataset):
             # crop if necessary
             rgb_image, depthmap, intrinsics = self._crop_resize_if_necessary(
                 rgb_image, depthmap, intrinsics, resolution, rng=rng, info=view_idx)
+
+            if len(views) >= 2:
+                if len(views) == 2:
+                    v1_args = (views[0]['depthmap'], views[0]['camera_pose'], views[0]['camera_intrinsics'])
+                    v2_args = (views[1]['depthmap'], views[1]['camera_pose'], views[1]['camera_intrinsics'])
+                iou_1 = calculate_iou(depthmap, camera_pose, intrinsics, *v1_args)
+                iou_2 = calculate_iou(*v1_args, depthmap, camera_pose, intrinsics)
+                iou_3 = calculate_iou(depthmap, camera_pose, intrinsics, *v2_args)
+                iou_4 = calculate_iou(*v2_args, depthmap, camera_pose, intrinsics)
+                iou = (iou_1 + iou_2 + iou_3 + iou_4) / 4
+
             views.append(dict(
                 img=rgb_image,
                 depthmap=depthmap.astype(np.float32),
@@ -91,6 +113,7 @@ class Scannetpp(BaseStereoViewDataset):
                 dataset='ScanNet++',
                 label=scene_name + '_' + basename,
                 instance=f'{str(idx)}_{str(view_idx)}',
+                iou=iou if i >= 2 else 1
             ))
         return views
 

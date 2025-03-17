@@ -130,16 +130,43 @@ class GaussianLoss(MultiLoss):
         rec_tgts = []
         rpj_masks = []
 
+        import os        
+        import os.path as osp
+        import numpy as np
+        save_root = '/home/users/haoyi.jiang/data/scannetpp_rendered'
+        scene_name = target_view[0]['label'][0].split('_')[0]
+        pair_name = gt1['instance'][0] + '_' + gt2['instance'][0].split('_')[1]
+        save_dir = osp.join(save_root, scene_name, pair_name)
+
+        if not osp.exists(save_dir):
+            save = True
+            os.makedirs(save_dir)
+            meta = {}
+        else:
+            save = False
+            print(f"{save_dir} already exists, skip saving")
+
         for i in range(len(pred)):
             # get gaussian model
             gaussians = GaussianModel.from_predictions(pred[i], sh_degree=3)
             # get camera
             ref_camera_extrinsics = gt1['camera_pose'][i]
-            target_view_list = [gt1, gt2, target_view] # use gt1, gt2, and target_view
+            # target_view_list = [gt1, gt2, target_view] # use gt1, gt2, and target_view
+            target_view_list = [gt1, gt2] + target_view
+
             for j in range(len(target_view_list)):
-                target_extrinsics = target_view_list[j]['camera_pose'][i]
-                target_intrinsics = target_view_list[j]['camera_intrinsics'][i]
-                image_shape = target_view_list[j]['true_shape'][i]
+                if j < 2:
+                    target_extrinsics = target_view_list[j]['camera_pose'][i]
+                    target_intrinsics = target_view_list[j]['camera_intrinsics'][i]
+                    image_shape = target_view_list[j]['true_shape'][i]
+                    gt_images.append(target_view_list[j]['img'][i] * 0.5 + 0.5)
+                    gt_depths.append(target_view_list[j]['depthmap'][i])
+                else:
+                    target_extrinsics = target_view_list[j]['camera_pose'][0]
+                    target_intrinsics = target_view_list[j]['camera_intrinsics'][0]
+                    image_shape = target_view_list[j]['true_shape'][0]
+                    gt_images.append(target_view_list[j]['img'][0] * 0.5 + 0.5)
+                    gt_depths.append(target_view_list[j]['depthmap'][0])
                 scale = scaling[i]
                 camera = get_scaled_camera(ref_camera_extrinsics, target_extrinsics, target_intrinsics, scale, image_shape)
                 # render(image and features)
@@ -160,6 +187,39 @@ class GaussianLoss(MultiLoss):
                     rpj_images.append(rpj_image)
                     rec_tgts.append(target_view_list[0]['img'][i])
                     rpj_masks.append(mask.reshape(1, 1, 256, 256))
+                
+                if not save:
+                    continue
+
+                base_name = target_view_list[j]['label'][0].split('_', 1)[1]
+                if j < 2 and i == 0:
+                    save_image(target_view_list[j]['img'][i] * 0.5 + 0.5, osp.join(save_dir, f'{base_name}.png'))
+                    meta[base_name] = {
+                        'intrinsics': target_intrinsics.cpu().numpy(),
+                        'extrinsics': target_extrinsics.cpu().numpy(),
+                        'scale': scale.item(),
+                        'proj_matric': camera.projection_matrix.cpu().numpy(),
+                        'view_matrix': camera.world_view_transform.cpu().numpy()
+                    }
+                if j >= 2:
+                    save_image(rendered_output['render'], osp.join(save_dir, f'{base_name}_rendered_view{i}.png'))
+                    print(f'save {base_name}_view{i}.png')
+                    save_image(rendered_output['depth'], osp.join(save_dir, f'{base_name}_rendered_depth_view{i}.png'))
+                    print(f'save {base_name}_depth_view{i}.png')
+                    np.save(osp.join(save_dir, f'{base_name}_rendered_feat_view{i}.npy'), model.feature_expansion(rendered_output['feature_map'][None])[0].cpu().numpy())
+                    if i == 0:
+                        save_image(target_view_list[j]['img'][i] * 0.5 + 0.5, osp.join(save_dir, f'{base_name}.png'))
+                    meta[base_name] = {
+                        'intrinsics': target_intrinsics.cpu().numpy(),
+                        'extrinsics': target_extrinsics.cpu().numpy(),
+                        'scale': scale.item(),
+                        'proj_matric': camera.projection_matrix.cpu().numpy(),
+                        'view_matrix': camera.world_view_transform.cpu().numpy(),
+                        'miou': target_view_list[j]['iou'].item()
+                    }
+        if save:
+            np.savez(osp.join(save_dir, 'meta.npz'), **meta)
+            print(f"save {osp.join(save_dir, 'meta.npz')}")
 
         rendered_images = torch.stack(rendered_images, dim=0) # B, 3, H, W
         gt_images = torch.stack(gt_images, dim=0)
@@ -183,7 +243,7 @@ class GaussianLoss(MultiLoss):
 
 # loss for one batch
 def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, use_amp=False, ret=None):
-    view1, view2, target_view = batch
+    view1, view2, *target_view = batch
     ignore_keys = set(['depthmap', 'dataset', 'label', 'instance', 'idx', 'true_shape', 'rng'])
     for view in batch:
         for name in view.keys():  # pseudo_focal
@@ -193,7 +253,7 @@ def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, u
 
     if symmetrize_batch:
         view1, view2 = make_batch_symmetric((view1, view2))
-        target_view, _ = make_batch_symmetric((target_view, target_view))
+        # target_view, _ = make_batch_symmetric((target_view, target_view))
     # Get the actual model if it's distributed
     actual_model = model.module if hasattr(model, 'module') else model
 

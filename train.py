@@ -29,6 +29,8 @@ dust3r.training.LSM_Dust3R = LSM_Dust3R
 
 import yaml
 
+import torch
+
 def get_args_parser():
     parser = dust3r_get_args_parser()
     parser.prog = 'LSM_Dust3R training'
@@ -47,6 +49,7 @@ def get_args_parser():
 
 
 if __name__ == '__main__':
+    torch.multiprocessing.set_start_method('spawn')
     args = get_args_parser()
     args = args.parse_args()
     train(args)
