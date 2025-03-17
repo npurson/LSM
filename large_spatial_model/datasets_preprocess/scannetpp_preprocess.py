@@ -202,9 +202,21 @@ def calculate_iou(depth1, c2w1, K1, depth2, c2w2, K2):
     intersection = torch.sum(overlap_mask)
     union = torch.sum(valid_mask) + torch.sum(depth2 > 0) - intersection
 
-    iou = intersection.float() / union.float() if union > 0 else torch.tensor(0.0, device='cuda')
+    overlap_mask_2d = torch.zeros((h, w), dtype=torch.bool, device='cuda')
+    projected_mask_2d = torch.zeros((h, w), dtype=torch.bool, device='cuda')
+    for i in range(pixels_img2.shape[0]):
+        px, py = pixels_img2[i, 0], pixels_img2[i, 1]
+        projected_mask_2d[py, px] = True
+        if depth_diff[i] < depth_threshold:
+            overlap_mask_2d[py, px] = True
+    intersection = torch.sum(overlap_mask_2d)
+    union = torch.sum(projected_mask_2d | (depth2 > 0))
+    if union > 0:
+        iou = (intersection.float() / union.float()).item()
+    else:
+        iou = 0.
+    return iou
 
-    return iou.item()
 
 if __name__ == "__main__":
     data_root = "data/scannetpp_processed"
