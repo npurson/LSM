@@ -3,7 +3,6 @@
 <h5 align="center">
 
 [![arXiv](https://img.shields.io/badge/Arxiv-2403.20309-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2410.18956)
-[![Gradio](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/kairunwen/LSM)
 [![Home Page](https://img.shields.io/badge/Project-Website-green.svg)](https://largespatialmodel.github.io/)
 
 </h5>
