@@ -17,6 +17,7 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
 ## Table of Contents
 
 - [Table of Contents](#table-of-contents)
+- [Updates](#updates)
 - [Feature and RGB Rendering](#feature-and-rgb-rendering)
   - [Feature Visualization](#feature-visualization)
   - [RGB Color Rendering](#rgb-color-rendering)
@@ -25,10 +26,16 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
   - [Data Preparation](#data-preparation)
   - [Training](#training)
   - [Inference](#inference)
-- [Updates](#updates)
 - [Acknowledgement](#acknowledgement)
 - [Citation](#citation)
 
+## Updates
+
+**[2025-04-12]** Added test dataset download instructions and testing process description. See [data_process/data.md](data_process/data.md) for details.
+
+**[2025-03-09]** Added ScanNet++ data preprocessing pipeline. For detailed instructions, please refer to [data_process/data.md](data_process/data.md).
+
+**[2025-03-06]** Added ScanNet data preprocessing pipeline improvements. For detailed instructions, please refer to [data_process/data.md](data_process/data.md).
 
 ## Feature and RGB Rendering
 
@@ -108,28 +115,11 @@ LSM reconstructs explicit radiance fields from two unposed images in real-time, 
    ```
 
 ### Data Preparation
-1. **For training**: The model can be trained on ScanNet and ScanNet++ datasets. 
+1. **For training**: The model can be trained on ScanNet and ScanNet++ datasets.
    - Both datasets require signing agreements to access
    - Detailed data preparation instructions are available in [data_process/data.md](data_process/data.md)
 
-2. **For testing**: 
-   - Download test dataset:
-     ```bash
-     # Download and extract test dataset
-     wget https://huggingface.co/datasets/Journey9ni/LSM/resolve/main/scannet_test.tar
-     tar -xf scannet_test.tar
-     ```
-
-   - Data structure:
-     ```bash
-     data/scannet_test/
-     └── {scene_id}/
-         ├── depth/                     # Depth maps
-         ├── images/                    # RGB images 
-         ├── labels/                    # Semantic labels
-         ├── selected_seqs_test.json    # Test sequence parameters
-         └── selected_seqs_train.json   # Train sequence parameters
-     ```
+2. **For testing**: Refer to [data_process/data.md](data_process/data.md) for details on the test dataset.
 
 ### Training
 After preparing the datasets, you can train the model using the following command:
@@ -179,12 +169,6 @@ Optional parameters in `scripts/train.sh`:
    # Image resolution for processing
    --resolution "256"
    ```
-
-## Updates
-
-**[2024-03-09]** Added ScanNet++ data preprocessing pipeline. For detailed instructions, please refer to [data_process/data.md](data_process/data.md).
-
-**[2024-03-06]** Added ScanNet data preprocessing pipeline improvements. For detailed instructions, please refer to [data_process/data.md](data_process/data.md).
 
 ## Acknowledgement
 
