@@ -14,6 +14,12 @@
     - [1. Download ScanNet++ Data](#1-download-scannet-data-1)
     - [2. Data Processing](#2-data-processing)
     - [3. Data Structure](#3-data-structure)
+  - [Test Dataset](#test-dataset)
+    - [Download Test Dataset](#download-test-dataset)
+    - [Data Structure](#data-structure-1)
+    - [Test Set Selection Criteria](#test-set-selection-criteria)
+    - [Test Category Label Selection](#test-category-label-selection)
+    - [Test Data Loading and Evaluation Workflow](#test-data-loading-and-evaluation-workflow)
 
 ## Overview
 This document provides instructions for preparing ScanNet and ScanNet++ datasets for training and evaluation.
@@ -223,3 +229,51 @@ Each directory contains:
 - `render_depth/`: Rendered depth maps stored as 16-bit PNG files (depth values * 1000)
 - `rgb_resized_undistorted/`: Undistorted and resized RGB images
 - `mask_resized_undistorted/`: Undistorted and resized binary mask images (255 for valid pixels, 0 for invalid)
+
+## Test Dataset
+
+### Download Test Dataset
+```bash
+# Download and extract test dataset
+wget https://huggingface.co/datasets/Journey9ni/LSM/resolve/main/scannet_test.tar
+tar -xf scannet_test.tar -C ./data/ # Extract to the data directory
+```
+
+### Data Structure
+The test dataset is expected to have the following structure:
+```bash
+data/scannet_test/
+└── {scene_id}/
+    ├── depth/                     # Depth maps
+    ├── images/                    # RGB images
+    ├── labels/                    # Semantic labels
+    ├── selected_seqs_test.json    # Test sequence parameters
+    └── selected_seqs_train.json   # Train sequence parameters
+```
+
+### Test Set Selection Criteria
+The test set was curated using the following process:
+1. **Initial Selection**: The last 50 scenes from the alphabetically sorted list of original ScanNet scans were initially selected.
+2. **Frame Sampling**: 30 frames were sampled at regular intervals from each selected scene.
+3. **Pose Validation**: Each frame's pose data was checked for NaN values (due to errors in the original ScanNet dataset). Scenes containing frames with invalid poses were excluded (7 scenes removed).
+4. **Compatibility Check**: Scenes that caused errors during testing with NeRF-DFF and Feature-3DGS were further filtered out.
+5. **Final Set**: This process resulted in a final test set of 40 scenes.
+
+### Test Category Label Selection
+We use a predefined set of common indoor categories: ['wall', 'floor', 'ceiling', 'chair', 'table', 'sofa', 'bed', 'other'], instead of the 20 categories used by ScanNetV2.
+
+### Test Data Loading and Evaluation Workflow
+
+The testing process relies on the `TestDataset` class in `large_spatial_model/datasets/testdata.py`, initialized with `split='test'` and `is_training=False`.
+
+1.  **View Selection**: The dataset selects test views based on `llff_hold` and `test_ids` parameters for each scene. Typically, frames whose index modulo `llff_hold` falls within `test_ids` are chosen as the core test frames (`target_view`).
+2.  **View Grouping**: For each selected `target_view`, the dataset groups it with its immediate predecessor (`source_view1`) and successor (`source_view2`), forming a tuple of view indices: `(source_view2, target_view, source_view1)`. The test set comprises a series of these `(Scene ID, View Indices Tuple)` pairs.
+3.  **Data Loading**: When iterating through the dataset during testing:
+    *   The script loads RGB images (`.jpg`), depth maps (`.png`), semantic label maps (`.png`), and camera parameters (intrinsics, extrinsics from `.npz`) for each view index in the tuple.
+    *   Preprocessing steps include validity checks (e.g., for NaN in camera poses) and image cropping/resizing.
+    *   The `map_func` maps original ScanNet semantic labels to the simplified category set defined above.
+    *   This yields a dictionary for each view containing image, depth, pose, intrinsics, processed label map, etc.
+4.  **Model Inference and Evaluation**:
+    *   The model takes the `source_view1` and `source_view2` data as input to infer the parameters (e.g., Gaussian parameters for 3D Gaussian Splatting).
+    *   Using these inferred parameters and the `target_view`'s camera pose/intrinsics, the model renders a semantic label map for the `target_view`.
+    *   This rendered semantic map is then compared against the ground truth semantic label map for the `target_view` from the original ScanNet dataset to evaluate the model's performance.
