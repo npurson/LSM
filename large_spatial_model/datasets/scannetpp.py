@@ -10,7 +10,7 @@ class Scannetpp(BaseStereoViewDataset):
     def __init__(self, *args, ROOT, **kwargs):
         self.ROOT = ROOT
         super().__init__(*args, **kwargs)
-        assert self.split == 'train' # just for training
+        # assert self.split == 'train' # just for training
         self.num_views = 3 # render third view
         self.max_images = 200
         self._load_data()

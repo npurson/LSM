@@ -28,10 +28,10 @@ class L1Loss (LLoss):
 L2 = L2Loss()
 L1 = L1Loss()
 
-def merge_and_split_predictions(pred1, pred2):
+def merge_and_split_predictions(*args):
     merged = {}
     for key in ['scales', 'rotations', 'covs', 'opacities', 'sh_coeffs', 'means', 'gs_feats']:
-        merged_pred = torch.stack([pred1[key], pred2[key]], dim=1)
+        merged_pred = torch.stack([pred[key] for pred in args], dim=1)
         merged_pred = rearrange(merged_pred, 'b v h w ... -> b (v h w) ...')
         merged[key] = merged_pred
 

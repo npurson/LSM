@@ -40,6 +40,7 @@ class GaussianHead(nn.Module):
         self.opacity_activation = torch.sigmoid
 
     def forward(self, point_transformer_output, lseg_res_feature):
+        num_views = 2
         pred1 = {}
         pred2 = {}
 
@@ -72,11 +73,11 @@ class GaussianHead(nn.Module):
         all_dist = torch.stack([torch.sqrt(torch.clamp_min(distCUDA2(pts3d), 0.0000001)) for pts3d in means]) # B, V * H * W
         median_dist = all_dist.median(dim=-1)[0][:, None, None] # B, 1, 1
         scales = self.scale_activation(scales)
-        scales = rearrange(scales, '(b v h w) c -> b (v h w) c', b=B, v=2, h=H, w=W)
+        scales = rearrange(scales, '(b v h w) c -> b (v h w) c', b=B, v=num_views, h=H, w=W)
         scales = scales * all_dist[..., None]
         # clip scales
         scales = torch.clamp(scales, min=0.1 * median_dist, max=3.0 * median_dist)
-        scales = rearrange(scales, 'b (v h w) c -> (b v h w) c', b=B, v=2, h=H, w=W)
+        scales = rearrange(scales, 'b (v h w) c -> (b v h w) c', b=B, v=num_views, h=H, w=W)
         
         # activation
         rotations = self.rotation_activation(rotations)
@@ -86,7 +87,7 @@ class GaussianHead(nn.Module):
         covs = build_covariance(scales, rotations)
         
         # sh_mask
-        sh_coeffs = rearrange(sh_coeffs, '(b v h w) (c d) -> (b v h w) c d', b=B, v=2, h=H, w=W, c=self.d_sh, d=self.d_view_dep_features)
+        sh_coeffs = rearrange(sh_coeffs, '(b v h w) (c d) -> (b v h w) c d', b=B, v=num_views, h=H, w=W, c=self.d_sh, d=self.d_view_dep_features)
         sh_dc = sh_coeffs[..., 0, :]
         sh_rest = sh_coeffs[..., 1:, :]
         if self.args.get('rgb_residual'):
@@ -100,17 +101,17 @@ class GaussianHead(nn.Module):
         sh_coeffs = sh_coeffs * self.sh_mask[None, :, None]
 
         # lseg_features(learning residual)
-        lseg_res_feature = rearrange(lseg_res_feature, '(v b) c h w -> (b v h w) c', b=B, v=2, h=H, w=W)
+        lseg_res_feature = rearrange(lseg_res_feature, '(v b) c h w -> (b v h w) c', b=B, v=num_views, h=H, w=W)
         gs_feats = gs_feats + lseg_res_feature
 
         # split to 2 views
-        scales = rearrange(scales, '(b v h w) ... -> v b h w ...', v=2, b=B, h=H, w=W)
-        rotations = rearrange(rotations, '(b v h w) ... -> v b h w ...', v=2, b=B, h=H, w=W)
-        opacities = rearrange(opacities, '(b v h w) ... -> v b h w ...', v=2, b=B, h=H, w=W)
-        sh_coeffs = rearrange(sh_coeffs, '(b v h w) ... -> v b h w ...', v=2, b=B, h=H, w=W)
-        covs = rearrange(covs, '(b v h w) ... -> v b h w ...', v=2, b=B, h=H, w=W)
-        means = rearrange(means, 'b (v h w) ... -> v b h w ...', v=2, b=B, h=H, w=W)
-        gs_feats = rearrange(gs_feats, '(b v h w) ... -> v b h w ...', v=2, b=B, h=H, w=W)
+        scales = rearrange(scales, '(b v h w) ... -> v b h w ...', v=num_views, b=B, h=H, w=W)
+        rotations = rearrange(rotations, '(b v h w) ... -> v b h w ...', v=num_views, b=B, h=H, w=W)
+        opacities = rearrange(opacities, '(b v h w) ... -> v b h w ...', v=num_views, b=B, h=H, w=W)
+        sh_coeffs = rearrange(sh_coeffs, '(b v h w) ... -> v b h w ...', v=num_views, b=B, h=H, w=W)
+        covs = rearrange(covs, '(b v h w) ... -> v b h w ...', v=num_views, b=B, h=H, w=W)
+        means = rearrange(means, 'b (v h w) ... -> v b h w ...', v=num_views, b=B, h=H, w=W)
+        gs_feats = rearrange(gs_feats, '(b v h w) ... -> v b h w ...', v=num_views, b=B, h=H, w=W)
 
         pred1['scales'] = scales[0]
         pred1['rotations'] = rotations[0]

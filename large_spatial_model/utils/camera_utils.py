@@ -19,9 +19,9 @@ def get_scaled_camera(ref_camera_extrinsics, target_camera_extrinsics, target_ca
     fovx = 2 * math.atan(image_shape[1] / (2 * target_camera_intrinsics[0, 0]))
     fovy = 2 * math.atan(image_shape[0] / (2 * target_camera_intrinsics[1, 1]))
     # return camera(numpy)
-    R = target_camera_extrinsics_inv[:3, :3].cpu().numpy().transpose() # R.transpose() : ref_camera_2_target_camera
-    T = target_camera_extrinsics_inv[:3, 3].cpu().numpy() # T : ref_camera_2_target_camera
-    image_shape = image_shape.cpu().numpy()
+    R = target_camera_extrinsics_inv[:3, :3].cpu().detach().numpy().transpose() # R.transpose() : ref_camera_2_target_camera
+    T = target_camera_extrinsics_inv[:3, 3].cpu().detach().numpy() # T : ref_camera_2_target_camera
+    image_shape = image_shape.cpu().detach().numpy()
     return DummyCamera(R, T, fovx, fovy, image_shape[1], image_shape[0])
 
 def move_c2w_along_z(extrinsics: torch.Tensor, distance: float) -> torch.Tensor:

@@ -10,7 +10,7 @@ torchrun --nproc_per_node=4 train.py \
     --min_lr 1e-06 \
     --warmup_epochs 10 \
     --epochs 100 \
-    --batch_size 4 \
+    --batch_size 2 \
     --accum_iter 2 \
     --save_freq 1 \
     --keep_freq 5 \
