@@ -27,6 +27,9 @@ from large_spatial_model.model import LSM_Dust3R
 from large_spatial_model.datasets.testdata import TestDataset  # noqa
 import dust3r.datasets
 dust3r.datasets.TestDataset = TestDataset
+from large_spatial_model.datasets.scannetpp import Scannetpp
+dust3r.datasets.Scannetpp = Scannetpp
+
 # Loss
 from large_spatial_model.loss import loss_of_one_batch  # noqa
 from large_spatial_model.loss import TestLoss

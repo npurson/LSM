@@ -26,6 +26,8 @@ dust3r.datasets.Scannet = Scannet
 
 from large_spatial_model.model import LSM_Dust3R
 dust3r.training.LSM_Dust3R = LSM_Dust3R
+from large_spatial_model.vg3t import VG3T
+dust3r.training.VG3T = VG3T
 
 import yaml
 
