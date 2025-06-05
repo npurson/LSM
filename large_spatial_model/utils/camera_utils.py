@@ -10,7 +10,8 @@ def get_scaled_camera(ref_camera_extrinsics, target_camera_extrinsics, target_ca
     """
     
     # get extrinsics(target_camera to ref_camera)
-    target_camera_extrinsics = inv(ref_camera_extrinsics) @ target_camera_extrinsics
+    if ref_camera_extrinsics is not None:
+        target_camera_extrinsics = inv(ref_camera_extrinsics) @ target_camera_extrinsics
     # scale translation
     target_camera_extrinsics[:3, 3] = target_camera_extrinsics[:3, 3] * scale
     # invert extrinsics(ref_camera to target_camera)

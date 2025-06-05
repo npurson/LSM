@@ -24,25 +24,26 @@ from large_spatial_model.datasets.scannetpp import Scannetpp
 dust3r.datasets.Scannetpp = Scannetpp
 dust3r.datasets.Scannet = Scannet
 
-from large_spatial_model.model import LSM_Dust3R
-dust3r.training.LSM_Dust3R = LSM_Dust3R
+from large_spatial_model.vg3r import VG3R
+dust3r.training.VG3R = VG3R
 
 import yaml
+
 
 def get_args_parser():
     parser = dust3r_get_args_parser()
     parser.prog = 'LSM_Dust3R training'
-    
+
     # Load the configuration
     with open("configs/default.yaml", "r") as f:
         config = yaml.safe_load(f)
-    
+
     # Convert the config dict to a string of keyword arguments
     config_str = "config=" + str(config)
-    
+
     # Set the default model string with parameters
-    parser.set_defaults(model=f"LSM_Dust3R({config_str})")
-    
+    parser.set_defaults(model=f"VG3R({config_str})")
+
     return parser
 
 

@@ -26,4 +26,4 @@ pytorch-lightning
 lpips
 gdown
 scikit-learn
-open3d
+# open3d
