@@ -9,6 +9,9 @@ from dust3r.utils.image import imread_cv2
 import pandas as pd
 from dust3r.utils.geometry import depthmap_to_absolute_camera_coordinates
 
+from .scannet import camera_normalization
+
+
 def map_func(label_path, labels=['wall', 'floor', 'ceiling', 'chair', 'table', 'sofa', 'bed', 'other']):
     labels = [label.lower() for label in labels]
 
@@ -23,7 +26,7 @@ def map_func(label_path, labels=['wall', 'floor', 'ceiling', 'chair', 'table', '
 
 
 class TestDataset(BaseStereoViewDataset):
-    def __init__(self, mask_bg=True, llff_hold=8, test_ids=[1,4], is_training=False, num_views=3, *args, ROOT, **kwargs):
+    def __init__(self, mask_bg=True, llff_hold=8, test_ids=[1,4], is_training=False, num_views=3, normalize_camera=True, *args, ROOT, **kwargs):
         
         self.ROOT = ROOT
         super().__init__(*args, **kwargs)
@@ -49,7 +52,9 @@ class TestDataset(BaseStereoViewDataset):
         self.is_training = is_training
         self.all_views = self.get_all_views()
         self.views_per_scene = len(self.all_views) // len(self.scene_list)
-    
+
+        self.normalize_camera = normalize_camera
+
     def __len__(self):
         return len(self.all_views)
     
@@ -84,9 +89,9 @@ class TestDataset(BaseStereoViewDataset):
         mask_bg = (self.mask_bg == True) or (self.mask_bg == 'rand' and rng.choice(2))
         
         views = []
-            
+        imgs_idxs = [imgs_idxs[1], imgs_idxs[2], imgs_idxs[0]]
         imgs_idxs = deque(imgs_idxs)
-        
+        i = 0
         while len(imgs_idxs) > 0:  # some images (few) have zero depth
             im_idx = imgs_idxs.pop()
             
@@ -105,7 +110,7 @@ class TestDataset(BaseStereoViewDataset):
             meta_data_path = impath.replace('jpg', 'npz')
             depthmap_path = impath.replace('images', 'depths').replace('.jpg', '.png')
             labelmap_path = impath.replace('images', 'labels').replace('.jpg', '.png')
-            
+
             # load camera params
             input_metadata = np.load(meta_data_path)
             camera_pose = input_metadata['camera_pose'].astype(np.float32)
@@ -151,17 +156,35 @@ class TestDataset(BaseStereoViewDataset):
                 self.invalidate[scene_id][resolution][im_idx] = True
                 imgs_idxs.append(im_idx)
                 continue
+
+            if self.normalize_camera:
+                extrinsics = np.copy(camera_pose)
+                if i == 0:
+                    extrinsics0 = extrinsics
+                elif i == 1:
+                    scale = np.linalg.norm(extrinsics0[:3, 3] - extrinsics[:3, 3])
+                    extrinsics0[:3, 3] /= scale
+                if i in (1, 2):
+                    extrinsics[:3, 3] /= scale
+
+                if i == 1:
+                    views[0]['extrinsics'] = camera_normalization(extrinsics0, extrinsics0)
+                if i in (1, 2):
+                    extrinsics = camera_normalization(extrinsics0, extrinsics)
+
             view = dict(
                 img=rgb_image,
                 depthmap=depthmap,
                 camera_pose=camera_pose,
                 camera_intrinsics=intrinsics,
+                extrinsics=extrinsics,
                 dataset='Testdata',
                 label=scene_id,
                 instance=osp.split(impath)[1],
                 labelmap=labelmap,
             )
             views.append(view)
+            i += 1
             
         return views
     
@@ -220,6 +243,7 @@ class TestDataset(BaseStereoViewDataset):
             camera_pose=camera_pose,
             labelmap=labelmap,
             camera_intrinsics=intrinsics,
+            extrinsics=input_metadata['extrinsics'].astype(np.float32),
             dataset='Scannet',
             label=scene_id,
             instance=osp.split(impath)[1],

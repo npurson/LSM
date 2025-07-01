@@ -6,13 +6,24 @@ import cv2
 from dust3r.utils.image import imread_cv2
 import itertools
 
+
+def camera_normalization(pivotal_pose: np.ndarray, poses: np.ndarray):
+    canonical_camera_extrinsics = np.eye(4, dtype=np.float32)
+    pivotal_pose_inv = np.linalg.inv(pivotal_pose)
+    camera_norm_matrix = canonical_camera_extrinsics @ pivotal_pose_inv
+    poses = camera_norm_matrix @ poses
+    return poses
+
+
 class Scannet(BaseStereoViewDataset):
-    def __init__(self, *args, ROOT, **kwargs):
+    def __init__(self, *args, ROOT, normalize_camera=True, **kwargs):
         self.ROOT = ROOT
         super().__init__(*args, **kwargs)
         self.num_views = 3 # render third view
         self._load_data()
-        
+
+        self.normalize_camera = normalize_camera
+
     def _load_data(self):
         # Traverse all the folders in the data_root
         scene_names = [folder for folder in os.listdir(self.ROOT) if os.path.isdir(os.path.join(self.ROOT, folder))]
@@ -46,7 +57,7 @@ class Scannet(BaseStereoViewDataset):
         image_idx2 = int(image_idx2)
         image_idx3 = int((image_idx1 + image_idx2) / 2)
         views = []
-        for view_idx in [image_idx1, image_idx2, image_idx3]:
+        for i, view_idx in enumerate([image_idx1, image_idx2, image_idx3]):
             basename = os.path.basename(self.images[scene_name][view_idx]).split('.')[0]
             # Load RGB image
             rgb_path = osp.join(self.ROOT, scene_name, 'color', f'{basename}.png')
@@ -64,11 +75,31 @@ class Scannet(BaseStereoViewDataset):
             # crop if necessary
             rgb_image, depthmap, intrinsics = self._crop_resize_if_necessary(
                 rgb_image, depthmap, intrinsics, resolution, rng=rng, info=view_idx)
+
+            if self.normalize_camera:
+                extrinsics = np.copy(camera_pose)
+                if i == 0:
+                    extrinsics0 = extrinsics
+                elif i == 1:
+                    scale = np.linalg.norm(extrinsics0[:3, 3] - extrinsics[:3, 3])
+                    if scale < 1e-3 or scale > 1e2:
+                        print('Baseline out of range, should be skipped in NoPoSplat.')
+                        return self._get_views(idx + 1, resolution, rng)
+                    extrinsics0[:3, 3] /= scale
+                if i in (1, 2):
+                    extrinsics[:3, 3] /= scale
+
+                if i == 1:
+                    views[0]['extrinsics'] = camera_normalization(extrinsics0, extrinsics0)
+                if i in (1, 2):
+                    extrinsics = camera_normalization(extrinsics0, extrinsics)
+
             views.append(dict(
                 img=rgb_image,
                 depthmap=depthmap.astype(np.float32),
                 camera_pose=camera_pose.astype(np.float32),
                 camera_intrinsics=intrinsics.astype(np.float32),
+                extrinsics=extrinsics.astype(np.float32),
                 dataset='ScanNet',
                 label=scene_name + '_' + basename,
                 instance=f'{str(idx)}_{str(view_idx)}',

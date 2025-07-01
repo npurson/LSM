@@ -22,8 +22,8 @@ class VG3R(nn.Module):
         self.vggt = VGGT()
         _url = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
         self.vggt.load_state_dict(
-            torch.hub.load_state_dict_from_url(_url, map_location='cpu'), strict=True)
-        self.config.freeze_dust3r = True
+            torch.hub.load_state_dict_from_url(_url, map_location='cpu'), strict=False)
+        self.config.freeze_dust3r = False
 
         self.dpt_head = DPTHead(dim_in=2 * 1024, feature_only=True, input_identity=True)
         self.gs_attr_proj = nn.Sequential(
@@ -56,18 +56,16 @@ class VG3R(nn.Module):
             for param in self.lseg_feature_extractor.parameters():
                 param.requires_grad = False
 
-        # self.load_state_dict(torch.load('checkpoint-best.pth', map_location='cpu')['model'], strict=True)
+        # self.load_state_dict(torch.load('checkpoint-last.pth', map_location='cpu')['model'], strict=True)
 
     def forward(self, view1, view2):
         images = torch.stack((view1['img'], view2['img']), 1)
         dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
         if self.config.freeze_dust3r:
             with torch.no_grad():
-                with torch.cuda.amp.autocast(dtype=dtype):
-                    outputs = self.vggt((images + 1) / 2)
-        else:
-            with torch.cuda.amp.autocast(dtype=dtype):
                 outputs = self.vggt((images + 1) / 2)
+        else:
+            outputs = self.vggt((images + 1) / 2)
         extr, intr = pose_encoding_to_extri_intri(outputs['pose_enc'], view1['img'].shape[2:])
         extr = F.pad(extr, (0, 0, 0, 1), value=0)
         extr[..., 3, 3] = 1
@@ -90,8 +88,6 @@ class VG3R(nn.Module):
     def extract_lseg_features(self, view1, view2):
         # concat view1 and view2
         img = torch.cat([view1['img'], view2['img']], dim=0)  # (v*b, 3, h, w)
-        assert img.shape[2:] == (518, 518)
-        img = F.interpolate(img, size=(512, 512), mode='bilinear', align_corners=False)
 
         # extract features
         lseg_features = self.lseg_feature_extractor.extract_features(img)  # (v*b, 512, h//2, w//2)
@@ -102,8 +98,6 @@ class VG3R(nn.Module):
         # feature reduction
         lseg_res_feature = self.feature_reduction(lseg_features)
 
-        lseg_res_feature = F.interpolate(
-            lseg_res_feature, size=(518, 518), mode='bilinear', align_corners=False)
         return lseg_token_feature, lseg_res_feature
 
     @classmethod

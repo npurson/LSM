@@ -93,7 +93,8 @@ class GaussianLoss(MultiLoss):
         in_camera1 = inv(gt1['camera_pose'])
         gt_pts1 = geotrf(in_camera1, gt1['pts3d'].to(in_camera1.device))  # B,H,W,3
         gt_pts2 = geotrf(in_camera1, gt2['pts3d'].to(in_camera1.device))  # B,H,W,3
-        scaling = find_opt_scaling(gt_pts1, gt_pts2, pred_pts1, pred_pts2, valid1=valid1, valid2=valid2)
+        scaling = find_opt_scaling(
+            gt_pts1, gt_pts2, pred_pts1, pred_pts2, valid1=valid1, valid2=valid2)
         """
 
         for i in range(len(pred)):
@@ -113,18 +114,16 @@ class GaussianLoss(MultiLoss):
             target_view_list = [gt1, gt2, target_view]  # use gt1, gt2, and target_view
             for j in range(len(target_view_list)):
                 # target_extrinsics = target_view_list[j]['camera_pose'][i]
-                # target_intrinsics = target_view_list[j]['camera_intrinsics'][i]
-                target_extrinsics = pred[i]['extr'][j]
-                target_intrinsics = pred[i]['intr'][j]
-
-                target_extrinsics_inv = target_extrinsics.clone()
-                target_extrinsics_inv[:3, :3] = target_extrinsics_inv[:3, :3].T
-                target_extrinsics_inv[:3, 3] = -target_extrinsics_inv[:3, :3] @ target_extrinsics[:3, 3]
+                target_intrinsics = target_view_list[j]['camera_intrinsics'][i]
+                target_extrinsics = target_view_list[j]['extrinsics'][i]  # actually camera pose
+                target_extrinsics_ = target_extrinsics.clone()
+                target_extrinsics_[:3, :3] = target_extrinsics[:3, :3].mT
+                target_extrinsics_[:3, 3:4] = -target_extrinsics_[:3, :3] @ target_extrinsics[:3, 3:4]
 
                 image_shape = target_view_list[j]['true_shape'][i]
                 scale = 1  # scaling[i]
                 camera = get_scaled_camera(None,
-                                           target_extrinsics_inv.detach(),
+                                           target_extrinsics.detach(),
                                            target_intrinsics, scale,
                                            image_shape)
                 # render(image and features)
@@ -134,7 +133,7 @@ class GaussianLoss(MultiLoss):
                     self.pipeline,
                     self.bg_color,
                     intrinsics=target_intrinsics,
-                    extrinsics=target_extrinsics)
+                    extrinsics=target_extrinsics_)
                 rendered_images.append(rendered_output['render'])
                 rendered_feats.append(rendered_output['feature_map'])
                 gt_images.append(target_view_list[j]['img'][i] * 0.5 + 0.5)
@@ -146,9 +145,7 @@ class GaussianLoss(MultiLoss):
         rendered_feats = rendered_feats.squeeze(1).permute(0, 3, 1, 2)  # B, d_feats, H, W
         rendered_feats = model.feature_expansion(rendered_feats)  # B, 512, H//2, W//2
 
-        assert gt_images.shape[2:] == (518, 518)
-        resized_gt_images = F.interpolate(
-            gt_images, (512, 512), mode='bilinear', align_corners=False)
+        resized_gt_images = gt_images
         gt_feats = model.lseg_feature_extractor.extract_features(resized_gt_images)  # B, 512, H//2, W//2
         gt_feats = F.interpolate(
             gt_feats, rendered_feats.shape[-2:], mode='bilinear', align_corners=False)
@@ -164,6 +161,7 @@ class GaussianLoss(MultiLoss):
 class TestLoss(MultiLoss):
 
     def __init__(self,
+                 pose_align_steps=False,
                  labels=['wall', 'floor', 'ceiling', 'chair', 'table', 'sofa', 'bed', 'other']):
         super().__init__()
         self.labels = labels
@@ -182,14 +180,21 @@ class TestLoss(MultiLoss):
         # bg_color
         self.register_buffer('bg_color', torch.tensor([0.0, 0.0, 0.0]).cuda())
 
+        self.pose_align_steps = pose_align_steps
+        if self.pose_align_steps:
+            self.pose_embeds = nn.Embedding(2, 9)  # num_views - 1, Delta positions (3D) + Delta rotations (6D)
+            self.register_buffer("identity", torch.tensor([1.0, 0.0, 0.0, 0.0, 1.0, 0.0]))
+            torch.nn.init.zeros_(self.pose_embeds.weight)
+
     def get_name(self):
         return f'TestLoss'
 
-    def compute_loss(self, gt1, gt2, pred1, pred2, target_view=None, model=None):
+    def compute_loss(self, gt1, gt2, pred1, pred2, target_view=None, model=None, pose_deltas=None, evaluate=True):
         # render images
         # 1. merge predictions
         pred = merge_and_split_predictions(pred1, pred2)
 
+        """
         # 2. calculate optimal scaling
         pred_pts1 = pred1['means']
         pred_pts2 = pred2['means']
@@ -202,6 +207,7 @@ class TestLoss(MultiLoss):
         gt_pts2 = geotrf(in_camera1, gt2['pts3d'].to(in_camera1.device))  # B,H,W,3
         scaling = find_opt_scaling(
             gt_pts1, gt_pts2, pred_pts1, pred_pts2, valid1=valid1, valid2=valid2)
+        """
 
         # 3. render images(need gaussian model, camera, pipeline)
         rendered_images = []
@@ -212,31 +218,61 @@ class TestLoss(MultiLoss):
             # get gaussian model
             gaussians = GaussianModel.from_predictions(pred[i], sh_degree=3)
             # get camera
-            ref_camera_extrinsics = gt1['camera_pose'][i]
+            # ref_camera_extrinsics = gt1['camera_pose'][i]
             target_view_list = [gt1, gt2, target_view]  # use gt1, gt2, and target_view
             for j in range(len(target_view_list)):
-                target_extrinsics = target_view_list[j]['camera_pose'][i]
+                # target_extrinsics = target_view_list[j]['camera_pose'][i]
                 target_intrinsics = target_view_list[j]['camera_intrinsics'][i]
+                target_extrinsics = target_view_list[j]['extrinsics'][i]  # actually camera pose
+                target_extrinsics_ = target_extrinsics.clone()
+                target_extrinsics_[:3, :3] = target_extrinsics[:3, :3].mT
+                target_extrinsics_[:3, 3:4] = -target_extrinsics_[:3, :3] @ target_extrinsics[:3, 3:4]
+
+                if pose_deltas is not None:
+                    assert i == 0
+                    pose_deltas_ = pose_deltas.weight[j - 1].unsqueeze(0)
+                    dx, drot = pose_deltas_[..., :3], pose_deltas_[..., 3:]
+                    rot = rotation_6d_to_matrix(
+                        drot + self.identity.expand(pose_deltas_.size(0), -1)
+                    )  # (..., 3, 3)
+                    transform = torch.eye(4, device=pose_deltas_.device).repeat((pose_deltas_.size(0), 1, 1))
+                    transform[..., :3, :3] = rot
+                    transform[..., :3, 3] = dx
+                    target_extrinsics_ = target_extrinsics_ @ transform.squeeze(0)
+
                 image_shape = target_view_list[j]['true_shape'][i]
-                scale = scaling[i]
-                camera = get_scaled_camera(ref_camera_extrinsics,
-                                           target_extrinsics,
+                scale = 1  # scaling[i]
+                camera = get_scaled_camera(None,
+                                           target_extrinsics.detach(),
                                            target_intrinsics, scale,
                                            image_shape)
                 # render(image and features)
-                rendered_output = render(camera, gaussians, self.pipeline, self.bg_color)
+                rendered_output = render(camera, gaussians, self.pipeline, self.bg_color,
+                                         intrinsics=target_intrinsics,
+                                         extrinsics=target_extrinsics_)
                 rendered_images.append(rendered_output['render'])
                 rendered_feats.append(rendered_output['feature_map'])
                 gt_images.append(target_view_list[j]['img'][i] * 0.5 + 0.5)
 
         rendered_images = torch.stack(rendered_images, dim=0)  # B, 3, H, W
+        rendered_images = rendered_images.squeeze(1).permute(0, 3, 1, 2)
         gt_images = torch.stack(gt_images, dim=0)
         rendered_feats = torch.stack(rendered_feats, dim=0)  # B, d_feats, H, W
+        rendered_feats = rendered_feats.squeeze(1).permute(0, 3, 1, 2)
         rendered_feats = model.feature_expansion(rendered_feats)  # B, 512, H//2, W//2
         gt_feats = model.lseg_feature_extractor.extract_features(gt_images)  # B, 512, H//2, W//2
         image_loss = torch.abs(rendered_images - gt_images).mean()
         feature_loss = (1 - torch.nn.functional.cosine_similarity(
             rendered_feats, gt_feats, dim=1)).mean()
+        
+        logits = model.lseg_feature_extractor.decode_feature(rendered_feats, self.labels)
+        pred = logits.argmax(dim=1, keepdim=True)
+        pred = pred.clamp(max=7) + 1
+        pred = pred[-1]
+
+        if evaluate:
+            self.miou.update(pred, target_view["labelmap"].long())
+            self.psnr.update(rendered_images[-1], gt_images[-1])
 
         loss = image_loss + feature_loss
         return loss, {'image_loss': float(image_loss), 'feature_loss': float(feature_loss)}
@@ -267,10 +303,31 @@ def loss_of_one_batch(batch,
     actual_model = model.module if hasattr(model, 'module') else model
 
     with torch.cuda.amp.autocast(enabled=bool(use_amp)):
-        pred1, pred2 = actual_model(view1, view2)
-
+        if actual_model.training:
+            pred1, pred2 = actual_model(view1, view2)
+        else:
+            with torch.no_grad():
+                pred1, pred2 = actual_model(view1, view2)
+            
         # loss is supposed to be symmetric
         with torch.cuda.amp.autocast(enabled=False):
+            pose_align_steps = getattr(criterion, 'pose_align_steps', 0)
+            if pose_align_steps:
+                optimzer = torch.optim.Adam(criterion.pose_embeds.parameters(), lr=5e-3)
+                criterion.pose_embeds.weight.data.zero_()
+                for i in range(pose_align_steps):
+                    if i != pose_align_steps - 1:
+                        loss, _ = criterion(
+                            view1, view2, pred1, pred2, target_view=target_view, model=actual_model,
+                            pose_deltas=criterion.pose_embeds, evaluate=False)
+                        optimzer.zero_grad()
+                        loss.backward()
+                        optimzer.step()
+                    else:
+                        loss = criterion(
+                            view1, view2, pred1, pred2, target_view=target_view, model=actual_model,
+                            pose_deltas=criterion.pose_embeds)
+
             loss = criterion(
                 view1, view2, pred1, pred2, target_view=target_view, model=actual_model
             ) if criterion is not None else None

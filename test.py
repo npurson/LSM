@@ -22,7 +22,7 @@ import torch
 torch.backends.cuda.matmul.allow_tf32 = True  # for gpu >= Ampere and pytorch >= 1.12
 
 # Model
-from large_spatial_model.model import LSM_Dust3R
+from large_spatial_model.vg3r import VG3R
 # Dataset
 from large_spatial_model.datasets.testdata import TestDataset  # noqa
 import dust3r.datasets
@@ -37,7 +37,6 @@ from dust3r.datasets import get_data_loader  # noqa
 from dust3r.losses import *  # noqa: F401, needed when loading the model
 from large_spatial_model.loss import loss_of_one_batch  # noqa
 
-import dust3r.utils.path_to_croco  # noqa: F401
 import croco.utils.misc as misc  # noqa
 
 def get_args_parser():
@@ -78,7 +77,7 @@ def main(args):
     print(f'>> Creating test criterion = {args.test_criterion}')
     test_criterion = eval(args.test_criterion).to(device)
     
-    model = LSM_Dust3R.from_pretrained(args.pretrained, device)
+    model = VG3R.from_pretrained(args.pretrained, device)
     model.eval()
     
     # Test on datasets
@@ -101,7 +100,7 @@ def build_dataset(dataset, batch_size, num_workers, test=False):
     print(f"{split} dataset length: ", len(loader))
     return loader
 
-@torch.no_grad()
+
 def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                    data_loader: Sized, device: torch.device, epoch: int,
                    args, log_writer=None, prefix='test'):
@@ -126,9 +125,11 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         loss_tuple = res['loss']
         loss_value, loss_details = loss_tuple  # criterion returns two values
 
-        results = loss_details.pop('results')
-        
+        # results = loss_details.pop('results')
         metric_logger.update(loss=float(loss_value), **loss_details)
+
+    print('PSNR: ', criterion.psnr.compute())
+    print('mIoU: ', criterion.miou.compute(), criterion.miou.compute().mean())
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
