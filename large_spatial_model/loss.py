@@ -33,6 +33,30 @@ L2 = L2Loss()
 L1 = L1Loss()
 
 
+def rotation_6d_to_matrix(d6):
+    """
+    Converts 6D rotation representation by Zhou et al. [1] to rotation matrix
+    using Gram--Schmidt orthogonalization per Section B of [1]. Adapted from pytorch3d.
+    Args:
+        d6: 6D rotation representation, of size (*, 6)
+
+    Returns:
+        batch of rotation matrices of size (*, 3, 3)
+
+    [1] Zhou, Y., Barnes, C., Lu, J., Yang, J., & Li, H.
+    On the Continuity of Rotation Representations in Neural Networks.
+    IEEE Conference on Computer Vision and Pattern Recognition, 2019.
+    Retrieved from http://arxiv.org/abs/1812.07035
+    """
+
+    a1, a2 = d6[..., :3], d6[..., 3:]
+    b1 = F.normalize(a1, dim=-1)
+    b2 = a2 - (b1 * a2).sum(-1, keepdim=True) * b1
+    b2 = F.normalize(b2, dim=-1)
+    b3 = torch.cross(b1, b2, dim=-1)
+    return torch.stack((b1, b2, b3), dim=-2)
+
+
 def merge_and_split_predictions(*args):
     merged = {}
     for key in [
@@ -97,10 +121,6 @@ class GaussianLoss(MultiLoss):
             gt_pts1, gt_pts2, pred_pts1, pred_pts2, valid1=valid1, valid2=valid2)
         """
 
-        for i in range(len(pred)):
-            pred[i]['extr'] = torch.stack([pred1['extr'][i], pred2['extr'][i]])
-            pred[i]['intr'] = torch.stack([pred1['intr'][i], pred2['intr'][i]])
-
         # 3. render images(need gaussian model, camera, pipeline)
         rendered_images = []
         rendered_feats = []
@@ -144,11 +164,8 @@ class GaussianLoss(MultiLoss):
         rendered_feats = torch.stack(rendered_feats, dim=0)
         rendered_feats = rendered_feats.squeeze(1).permute(0, 3, 1, 2)  # B, d_feats, H, W
         rendered_feats = model.feature_expansion(rendered_feats)  # B, 512, H//2, W//2
-
-        resized_gt_images = gt_images
-        gt_feats = model.lseg_feature_extractor.extract_features(resized_gt_images)  # B, 512, H//2, W//2
-        gt_feats = F.interpolate(
-            gt_feats, rendered_feats.shape[-2:], mode='bilinear', align_corners=False)
+        rendered_depths = torch.stack(rendered_depths, dim=0).squeeze(1).permute(0, 3, 1, 2)
+        gt_feats = model.lseg_feature_extractor.extract_features(gt_images)  # B, 512, H//2, W//2
 
         image_loss = torch.abs(rendered_images - gt_images).mean()
         feature_loss = (1 - torch.nn.functional.cosine_similarity(
@@ -261,10 +278,11 @@ class TestLoss(MultiLoss):
         rendered_feats = rendered_feats.squeeze(1).permute(0, 3, 1, 2)
         rendered_feats = model.feature_expansion(rendered_feats)  # B, 512, H//2, W//2
         gt_feats = model.lseg_feature_extractor.extract_features(gt_images)  # B, 512, H//2, W//2
-        image_loss = torch.abs(rendered_images - gt_images).mean()
+
+        image_loss = torch.abs(rendered_images[-1] - gt_images[-1]).mean()
         feature_loss = (1 - torch.nn.functional.cosine_similarity(
-            rendered_feats, gt_feats, dim=1)).mean()
-        
+            rendered_feats[-1], gt_feats[-1], dim=1)).mean()
+
         logits = model.lseg_feature_extractor.decode_feature(rendered_feats, self.labels)
         pred = logits.argmax(dim=1, keepdim=True)
         pred = pred.clamp(max=7) + 1
@@ -308,7 +326,7 @@ def loss_of_one_batch(batch,
         else:
             with torch.no_grad():
                 pred1, pred2 = actual_model(view1, view2)
-            
+
         # loss is supposed to be symmetric
         with torch.cuda.amp.autocast(enabled=False):
             pose_align_steps = getattr(criterion, 'pose_align_steps', 0)
