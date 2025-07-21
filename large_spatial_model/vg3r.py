@@ -12,6 +12,8 @@ from vggt.heads.dpt_head import DPTHead
 from vggt.models.vggt import VGGT
 from vggt.utils.pose_enc import pose_encoding_to_extri_intri
 
+from .utils.weight_modify import checkpoint_filter_fn
+
 
 class VG3R(nn.Module):
 
@@ -19,13 +21,15 @@ class VG3R(nn.Module):
         super().__init__()
         self.config = LSMConfig(**config)
 
-        self.vggt = VGGT()
+        self.vggt = VGGT(patch_size=16)
         _url = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-        self.vggt.load_state_dict(
-            torch.hub.load_state_dict_from_url(_url, map_location='cpu'), strict=False)
+        weights = torch.hub.load_state_dict_from_url(_url, map_location='cpu')
+        weights = weights.get('state_dict', weights)
+        weights = checkpoint_filter_fn(weights, self.vggt)
+        self.vggt.load_state_dict(weights, strict=False)
         self.config.freeze_dust3r = False
 
-        self.dpt_head = DPTHead(dim_in=2 * 1024, feature_only=True, input_identity=True)
+        self.dpt_head = DPTHead(dim_in=2 * 1024, feature_only=True, input_identity=True, patch_size=16)
         self.gs_attr_proj = nn.Sequential(
                 nn.Conv2d(256, 256, kernel_size=3, padding=1),
                 nn.ReLU(inplace=True),

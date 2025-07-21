@@ -47,7 +47,7 @@ def calculate_fov(output_width, output_height, focal_length, aspect_ratio=1.0, i
     return fovx, fovy
 
 def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None,
-           intrinsics=None, extrinsics=None):
+           intrinsics=None, extrinsics=None, scale=None):
     """
     Render the scene.
 
@@ -115,6 +115,20 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         colors_precomp = override_color
     semantic_feature = pc.get_semantic_feature
 
+    near = 0.1
+    far = 100.0
+    if scale is not None:
+        near = near / scale
+        far = far / scale
+        scale = 1.0 / near # 0.1, 1
+        extrinsics = extrinsics.clone()
+        extrinsics[:3, 3] = extrinsics[:3, 3] * scale
+        scales = scales * scale
+        rotations = rotations * scale
+        means3D = means3D * scale
+        near = near * scale
+        far = far * scale
+
     # Rasterize visible Gaussians to image, obtain their radii (on screen).
     if 'GaussianRasterizer' in globals():
         rendered_image, feature_map, radii, depth = rasterizer(
@@ -138,8 +152,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             intrinsics[None],
             width=viewpoint_camera.image_width,
             height=viewpoint_camera.image_height,
-            near_plane=0.1,
-            far_plane=100,
+            near_plane=near,
+            far_plane=far,
             render_mode='RGB+D',
             channel_chunk=32)
 

@@ -345,10 +345,10 @@ def loss_of_one_batch(batch,
                         loss = criterion(
                             view1, view2, pred1, pred2, target_view=target_view, model=actual_model,
                             pose_deltas=criterion.pose_embeds)
-
-            loss = criterion(
-                view1, view2, pred1, pred2, target_view=target_view, model=actual_model
-            ) if criterion is not None else None
+            else:
+                loss = criterion(
+                    view1, view2, pred1, pred2, target_view=target_view, model=actual_model
+                ) if criterion is not None else None
 
     result = dict(
         view1=view1,

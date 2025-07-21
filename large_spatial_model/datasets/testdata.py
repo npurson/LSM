@@ -161,6 +161,7 @@ class TestDataset(BaseStereoViewDataset):
                 extrinsics = np.copy(camera_pose)
                 if i == 0:
                     extrinsics0 = extrinsics
+                    scale = 0.
                 elif i == 1:
                     scale = np.linalg.norm(extrinsics0[:3, 3] - extrinsics[:3, 3])
                     extrinsics0[:3, 3] /= scale
@@ -169,6 +170,7 @@ class TestDataset(BaseStereoViewDataset):
 
                 if i == 1:
                     views[0]['extrinsics'] = camera_normalization(extrinsics0, extrinsics0)
+                    views[0]['scale'] = scale
                 if i in (1, 2):
                     extrinsics = camera_normalization(extrinsics0, extrinsics)
 
@@ -178,6 +180,7 @@ class TestDataset(BaseStereoViewDataset):
                 camera_pose=camera_pose,
                 camera_intrinsics=intrinsics,
                 extrinsics=extrinsics,
+                scale=np.float32(scale),
                 dataset='Testdata',
                 label=scene_id,
                 instance=osp.split(impath)[1],

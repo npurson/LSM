@@ -86,7 +86,8 @@ class GaussianHead(nn.Module):
             for pts3d in means
         ])  # B, V * H * W
         median_dist = all_dist.median(dim=-1)[0][:, None, None]  # B, 1, 1
-        scales = self.scale_activation(scales)
+        scales = scales.clamp(max=10)
+        scales = self.scale_activation(scales) * 0.0025
         scales = rearrange(scales, '(b v h w) c -> b (v h w) c', b=B, v=V, h=H, w=W)
         scales = scales * all_dist[..., None]
         # clip scales

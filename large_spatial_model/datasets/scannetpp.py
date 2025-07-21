@@ -76,6 +76,7 @@ class Scannetpp(BaseStereoViewDataset):
                 extrinsics = np.copy(camera_pose)
                 if i == 0:
                     extrinsics0 = extrinsics
+                    scale = 0.
                 elif i == 1:
                     scale = np.linalg.norm(extrinsics0[:3, 3] - extrinsics[:3, 3])
                     if scale < 1e-3 or scale > 1e2:
@@ -87,6 +88,7 @@ class Scannetpp(BaseStereoViewDataset):
 
                 if i == 1:
                     views[0]['extrinsics'] = camera_normalization(extrinsics0, extrinsics0)
+                    views[0]['scale'] = scale
                 if i in (1, 2):
                     extrinsics = camera_normalization(extrinsics0, extrinsics)
 
@@ -96,6 +98,7 @@ class Scannetpp(BaseStereoViewDataset):
                 camera_pose=camera_pose.astype(np.float32),
                 camera_intrinsics=intrinsics.astype(np.float32),
                 extrinsics=extrinsics.astype(np.float32),
+                scale=np.float32(scale),
                 dataset='ScanNet++',
                 label=scene_name + '_' + basename,
                 instance=f'{str(idx)}_{str(view_idx)}',

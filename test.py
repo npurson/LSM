@@ -130,6 +130,7 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
     print('PSNR: ', criterion.psnr.compute())
     print('mIoU: ', criterion.miou.compute(), criterion.miou.compute().mean())
+    print('Depth Metrics: ', criterion.depth_metric.compute())
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
