@@ -7,6 +7,8 @@ from large_spatial_model.utils.camera_utils import get_scaled_camera
 from large_spatial_model.utils.cuda_splatting import DummyPipeline, render
 from large_spatial_model.utils.gaussian_model import GaussianModel
 from torchmetrics import Accuracy, JaccardIndex
+from torchmetrics.segmentation import MeanIoU
+from torchmetrics.classification import MulticlassJaccardIndex
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 from torchvision.utils import save_image
 from vggt.utils.geometry import unproject_depth_map_to_point_map
@@ -98,6 +100,8 @@ class GaussianLoss(MultiLoss):
         # bg_color
         self.register_buffer('bg_color', torch.tensor([0.0, 0.0, 0.0]).cuda())
 
+        self.lpips = lpips.LPIPS(net='vgg')
+
     def get_name(self):
         return f'GaussianLoss(ssim_weight={self.ssim_weight})'
 
@@ -124,6 +128,7 @@ class GaussianLoss(MultiLoss):
         # 3. render images(need gaussian model, camera, pipeline)
         rendered_images = []
         rendered_feats = []
+        rendered_depths = []
         gt_images = []
 
         for i in range(len(pred)):
@@ -135,10 +140,10 @@ class GaussianLoss(MultiLoss):
             for j in range(len(target_view_list)):
                 # target_extrinsics = target_view_list[j]['camera_pose'][i]
                 target_intrinsics = target_view_list[j]['camera_intrinsics'][i]
-                target_extrinsics = target_view_list[j]['extrinsics'][i]  # actually camera pose
+                target_extrinsics = target_view_list[j]['extrinsics'][i]  # actually is camera pose
                 target_extrinsics_ = target_extrinsics.clone()
                 target_extrinsics_[:3, :3] = target_extrinsics[:3, :3].mT
-                target_extrinsics_[:3, 3:4] = -target_extrinsics_[:3, :3] @ target_extrinsics[:3, 3:4]
+                target_extrinsics_[:3, 3:4] = -target_extrinsics_[:3, :3] @ target_extrinsics[:3, 3:4]  # actual extrinsics
 
                 image_shape = target_view_list[j]['true_shape'][i]
                 scale = 1  # scaling[i]
@@ -153,9 +158,12 @@ class GaussianLoss(MultiLoss):
                     self.pipeline,
                     self.bg_color,
                     intrinsics=target_intrinsics,
-                    extrinsics=target_extrinsics_)
+                    extrinsics=target_extrinsics_,
+                    scale=target_view_list[j]['scale'][i]
+                    )
                 rendered_images.append(rendered_output['render'])
                 rendered_feats.append(rendered_output['feature_map'])
+                rendered_depths.append(rendered_output['depth'])
                 gt_images.append(target_view_list[j]['img'][i] * 0.5 + 0.5)
 
         rendered_images = torch.stack(rendered_images, dim=0)
@@ -168,6 +176,7 @@ class GaussianLoss(MultiLoss):
         gt_feats = model.lseg_feature_extractor.extract_features(gt_images)  # B, 512, H//2, W//2
 
         image_loss = torch.abs(rendered_images - gt_images).mean()
+        image_loss += self.lpips(rendered_images, gt_images).mean() * 0.05
         feature_loss = (1 - torch.nn.functional.cosine_similarity(
             rendered_feats, gt_feats, dim=1)).mean()
         loss = image_loss + self.feature_loss_weight * feature_loss
@@ -185,10 +194,16 @@ class TestLoss(MultiLoss):
         self.ssim = StructuralSimilarityIndexMeasure(data_range=1.0).cuda()
         self.psnr = PeakSignalNoiseRatio(data_range=1.0).cuda()
         self.lpips_vgg = lpips.LPIPS(net='vgg').cuda()
-        self.miou = JaccardIndex(
-            num_classes=len(self.labels) + 1,
-            task='multiclass',
-            ignore_index=0)
+        self.miou = MeanIoU(
+            num_classes=9,
+            include_background=False,
+            per_class=True,
+            input_format= "index")
+        # self.miou = MulticlassJaccardIndex(num_classes=9, ignore_index=0, average='none')
+        # self.miou = JaccardIndex(
+        #     num_classes=len(self.labels) + 1,
+        #     task='multiclass',
+        #     ignore_index=0)
         self.accuracy = Accuracy(
             num_classes=len(self.labels) + 1,
             task='multiclass',
@@ -230,6 +245,8 @@ class TestLoss(MultiLoss):
         rendered_images = []
         rendered_feats = []
         gt_images = []
+        rendered_depths = []
+        gt_depths = []
 
         for i in range(len(pred)):
             # get gaussian model
@@ -245,7 +262,7 @@ class TestLoss(MultiLoss):
                 target_extrinsics_[:3, :3] = target_extrinsics[:3, :3].mT
                 target_extrinsics_[:3, 3:4] = -target_extrinsics_[:3, :3] @ target_extrinsics[:3, 3:4]
 
-                if pose_deltas is not None:
+                if pose_deltas is not None and j > 0:
                     assert i == 0
                     pose_deltas_ = pose_deltas.weight[j - 1].unsqueeze(0)
                     dx, drot = pose_deltas_[..., :3], pose_deltas_[..., 3:]
@@ -266,10 +283,14 @@ class TestLoss(MultiLoss):
                 # render(image and features)
                 rendered_output = render(camera, gaussians, self.pipeline, self.bg_color,
                                          intrinsics=target_intrinsics,
-                                         extrinsics=target_extrinsics_)
+                                         extrinsics=target_extrinsics_,
+                                         scale=target_view_list[j]['scale'][i]
+                                         )
                 rendered_images.append(rendered_output['render'])
                 rendered_feats.append(rendered_output['feature_map'])
                 gt_images.append(target_view_list[j]['img'][i] * 0.5 + 0.5)
+                rendered_depths.append(rendered_output['depth'])
+                gt_depths.append(target_view_list[j]['depthmap'][i])
 
         rendered_images = torch.stack(rendered_images, dim=0)  # B, 3, H, W
         rendered_images = rendered_images.squeeze(1).permute(0, 3, 1, 2)
@@ -278,6 +299,9 @@ class TestLoss(MultiLoss):
         rendered_feats = rendered_feats.squeeze(1).permute(0, 3, 1, 2)
         rendered_feats = model.feature_expansion(rendered_feats)  # B, 512, H//2, W//2
         gt_feats = model.lseg_feature_extractor.extract_features(gt_images)  # B, 512, H//2, W//2
+        
+        rendered_depths = torch.stack(rendered_depths, dim=0).squeeze(1).squeeze(-1)
+        gt_depths = torch.stack(gt_depths, dim=0)
 
         image_loss = torch.abs(rendered_images[-1] - gt_images[-1]).mean()
         feature_loss = (1 - torch.nn.functional.cosine_similarity(
@@ -289,7 +313,8 @@ class TestLoss(MultiLoss):
         pred = pred[-1]
 
         if evaluate:
-            self.miou.update(pred, target_view["labelmap"].long())
+            pred = torch.where(target_view["labelmap"] != 0, pred, 0)
+            self.miou.update(pred[-1], target_view["labelmap"].long())
             self.psnr.update(rendered_images[-1], gt_images[-1])
 
         loss = image_loss + feature_loss

@@ -63,13 +63,20 @@ class VG3R(nn.Module):
         # self.load_state_dict(torch.load('checkpoint-last.pth', map_location='cpu')['model'], strict=True)
 
     def forward(self, view1, view2):
+        # normalize intrinsics, assuming the images width and height are same here
+        view1_intr = torch.concat((view1['camera_intrinsics'][:, :2,:] / view1['img'].shape[2],
+            view1['camera_intrinsics'][:, 2:, :]), dim=1)
+        view2_intr = torch.concat((view2['camera_intrinsics'][:, :2,:] / view2['img'].shape[2],
+            view2['camera_intrinsics'][:, 2:, :]), dim=1)
+        images_intr = torch.stack((view1_intr, view2_intr), 1)
+
         images = torch.stack((view1['img'], view2['img']), 1)
         dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
         if self.config.freeze_dust3r:
             with torch.no_grad():
-                outputs = self.vggt((images + 1) / 2)
+                outputs = self.vggt((images + 1) / 2, images_intr)
         else:
-            outputs = self.vggt((images + 1) / 2)
+            outputs = self.vggt((images + 1) / 2, images_intr)
         extr, intr = pose_encoding_to_extri_intri(outputs['pose_enc'], view1['img'].shape[2:])
         extr = F.pad(extr, (0, 0, 0, 1), value=0)
         extr[..., 3, 3] = 1

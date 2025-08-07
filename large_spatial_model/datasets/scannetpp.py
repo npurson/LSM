@@ -37,7 +37,7 @@ class Scannetpp(BaseStereoViewDataset):
             frame_num = len(images_paths)
             scene_combinations = [(i, j)
                                 for i, j in itertools.combinations(range(frame_num), 2)
-                                if 0 < abs(i - j) <= 30 and abs(i - j) % 5 == 0]
+                                if 0 < abs(i - j) <= 4 and abs(i - j) % 2 == 0]
             pairs.extend([(scene_name, *pair) for pair in scene_combinations])
             images[scene_name] = images_paths
             
