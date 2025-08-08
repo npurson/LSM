@@ -168,4 +168,4 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             "visibility_filter" : radii > 0,
             "radii": radii,
             'feature_map': feature_map,
-            "depth": depth} ###d
+            "depth": depth}

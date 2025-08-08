@@ -6,12 +6,148 @@ from einops import rearrange
 from large_spatial_model.utils.camera_utils import get_scaled_camera
 from large_spatial_model.utils.cuda_splatting import DummyPipeline, render
 from large_spatial_model.utils.gaussian_model import GaussianModel
-from torchmetrics import Accuracy, JaccardIndex
+from torchmetrics import Accuracy, JaccardIndex, Metric
 from torchmetrics.segmentation import MeanIoU
 from torchmetrics.classification import MulticlassJaccardIndex
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 from torchvision.utils import save_image
-from vggt.utils.geometry import unproject_depth_map_to_point_map
+
+
+import torch
+from torchmetrics import Metric
+
+class DepthEstimationMetric(Metric):
+    full_state_update: bool = False
+
+    def __init__(self, depth_cap=10.0, align_by_median=True, align_by_least_squares=False):
+        super().__init__()
+        self.add_state("abs_rel_sum", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("rmse_sum", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("delta1_sum", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("delta2_sum", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("delta3_sum", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("total", default=torch.tensor(0), dist_reduce_fx="sum")
+
+        self.depth_cap = depth_cap
+        self.align_by_median = align_by_median
+        self.align_by_least_squares = align_by_least_squares
+        self.trim = 0.2  # trimming ratio for least squares
+
+    @staticmethod
+    def compute_scale_and_shift(pred, target, mask):
+        a_00 = torch.sum(mask * pred * pred, dim=(1, 2))
+        a_01 = torch.sum(mask * pred, dim=(1, 2))
+        a_11 = torch.sum(mask, dim=(1, 2))
+
+        b_0 = torch.sum(mask * pred * target, dim=(1, 2))
+        b_1 = torch.sum(mask * target, dim=(1, 2))
+
+        det = a_00 * a_11 - a_01 * a_01
+        valid = det > 0
+
+        scale = torch.zeros_like(b_0)
+        shift = torch.zeros_like(b_1)
+
+        scale[valid] = (a_11[valid] * b_0[valid] - a_01[valid] * b_1[valid]) / det[valid]
+        shift[valid] = (-a_01[valid] * b_0[valid] + a_00[valid] * b_1[valid]) / det[valid]
+
+        return scale, shift
+
+    def align_prediction(self, prediction, target, mask):
+        # Ensure 3D: (B, H, W)
+        if prediction.dim() == 2:
+            prediction = prediction.unsqueeze(0)
+            target = target.unsqueeze(0)
+            mask = mask.unsqueeze(0)
+
+        B, H, W = prediction.shape
+        aligned = torch.zeros_like(prediction)
+
+        if self.align_by_median:
+            for b in range(B):
+                valid = mask[b] > 0
+                scale = torch.median(target[b][valid] / prediction[b][valid])
+                aligned[b] = prediction[b] * scale
+        elif self.align_by_least_squares:
+            for b in range(B):
+                pred_b, target_b, mask_b = prediction[b], target[b], mask[b]
+                scale, shift = self.compute_scale_and_shift(
+                    pred_b.unsqueeze(0), target_b.unsqueeze(0), mask_b.unsqueeze(0)
+                )
+                pred_aligned = scale.view(1, 1) * pred_b + shift.view(1, 1)
+
+                # trim and re-fit
+                for _ in range(2):
+                    err_map = torch.abs(pred_aligned - target_b) * mask_b
+                    err_vals = err_map[mask_b.bool()]
+                    if err_vals.numel() < 10:
+                        break
+                    sorted_err, _ = torch.sort(err_vals)
+                    trim_thresh = sorted_err[int((1.0 - self.trim) * len(sorted_err))]
+                    err_mask = (err_map < trim_thresh).float() * mask_b
+                    scale, shift = self.compute_scale_and_shift(
+                        pred_b.unsqueeze(0), target_b.unsqueeze(0), err_mask.unsqueeze(0)
+                    )
+                    pred_aligned = scale.view(1, 1) * pred_b + shift.view(1, 1)
+
+                aligned[b] = torch.clamp(pred_aligned, max=self.depth_cap)
+        else:
+            aligned = prediction  # no alignment
+
+        return aligned
+
+    def update(self, preds: torch.Tensor, targets: torch.Tensor):
+        """
+        preds: predicted depth map, shape (N, H, W)
+        targets: ground truth depth map, shape (N, H, W)
+        """
+        device = self.abs_rel_sum.device
+        preds = preds.to(device)
+        targets = targets.to(device)
+
+        if preds.dim() == 2:
+            preds = preds.unsqueeze(0)
+            targets = targets.unsqueeze(0)
+
+        mask = (targets > 0).to(preds.dtype)
+
+        preds = preds * mask  # zero out invalid
+        targets = targets * mask
+
+        if mask.sum() == 0:
+            return
+
+        preds_aligned = self.align_prediction(preds, targets, mask)
+
+        valid_mask = mask.bool()
+        preds_valid = preds_aligned[valid_mask]
+        targets_valid = targets[valid_mask]
+
+        abs_rel = torch.mean(torch.abs(preds_valid - targets_valid) / targets_valid)
+        rmse = torch.sqrt(torch.mean((preds_valid - targets_valid) ** 2))
+
+        ratio = torch.max(preds_valid / targets_valid, targets_valid / preds_valid)
+        delta1 = torch.mean((ratio < 1.03).float())
+        delta2 = torch.mean((ratio < 1.03**2).float())
+        delta3 = torch.mean((ratio < 1.03**3).float())
+
+        n = preds_valid.numel()
+
+        self.abs_rel_sum += abs_rel * n
+        self.rmse_sum += rmse * n
+        self.delta1_sum += delta1 * n
+        self.delta2_sum += delta2 * n
+        self.delta3_sum += delta3 * n
+        self.total += n
+
+    def compute(self):
+        return {
+            "AbsRel": self.abs_rel_sum / self.total,
+            "RMSE": self.rmse_sum / self.total,
+            "Delta1": self.delta1_sum / self.total,
+            "Delta2": self.delta2_sum / self.total,
+            "Delta3": self.delta3_sum / self.total,
+        }
 
 
 class KWRegr3D(Regr3D):
@@ -100,30 +236,14 @@ class GaussianLoss(MultiLoss):
         # bg_color
         self.register_buffer('bg_color', torch.tensor([0.0, 0.0, 0.0]).cuda())
 
-        self.lpips = lpips.LPIPS(net='vgg')
-
     def get_name(self):
         return f'GaussianLoss(ssim_weight={self.ssim_weight})'
 
-    def compute_loss(self, gt1, gt2, pred1, pred2, target_view=None, model=None):
-        # render images
-        # 1. merge predictions
-        pred = merge_and_split_predictions(pred1, pred2)
-
-        """
-        # 2. calculate optimal scaling
-        pred_pts1 = pred1['means']
-        pred_pts2 = pred2['means']
-        # convert to camera1 coordinates
-        # everything is normalized w.r.t. camera of view1
-        valid1 = gt1['valid_mask'].clone()
-        valid2 = gt2['valid_mask'].clone()
-        in_camera1 = inv(gt1['camera_pose'])
-        gt_pts1 = geotrf(in_camera1, gt1['pts3d'].to(in_camera1.device))  # B,H,W,3
-        gt_pts2 = geotrf(in_camera1, gt2['pts3d'].to(in_camera1.device))  # B,H,W,3
-        scaling = find_opt_scaling(
-            gt_pts1, gt_pts2, pred_pts1, pred_pts2, valid1=valid1, valid2=valid2)
-        """
+    def compute_loss(self, gt, preds, target_view=None, model=None):
+        pred = merge_and_split_predictions(*preds)
+        for i in range(len(pred)):
+            pred[i]['extr'] = torch.stack([p['extr'][i] for p in preds])
+            pred[i]['intr'] = torch.stack([p['intr'][i] for p in preds])
 
         # 3. render images(need gaussian model, camera, pipeline)
         rendered_images = []
@@ -135,10 +255,8 @@ class GaussianLoss(MultiLoss):
             # get gaussian model
             gaussians = GaussianModel.from_predictions(pred[i], sh_degree=3)
             # get camera
-            # ref_camera_extrinsics = gt1['camera_pose'][i]
-            target_view_list = [gt1, gt2, target_view]  # use gt1, gt2, and target_view
+            target_view_list = target_view
             for j in range(len(target_view_list)):
-                # target_extrinsics = target_view_list[j]['camera_pose'][i]
                 target_intrinsics = target_view_list[j]['camera_intrinsics'][i]
                 target_extrinsics = target_view_list[j]['extrinsics'][i]  # actually is camera pose
                 target_extrinsics_ = target_extrinsics.clone()
@@ -188,12 +306,14 @@ class TestLoss(MultiLoss):
 
     def __init__(self,
                  pose_align_steps=False,
+                 num_views=3,
                  labels=['wall', 'floor', 'ceiling', 'chair', 'table', 'sofa', 'bed', 'other']):
         super().__init__()
         self.labels = labels
         self.ssim = StructuralSimilarityIndexMeasure(data_range=1.0).cuda()
         self.psnr = PeakSignalNoiseRatio(data_range=1.0).cuda()
         self.lpips_vgg = lpips.LPIPS(net='vgg').cuda()
+        self.lpips_scores = []
         self.miou = MeanIoU(
             num_classes=9,
             include_background=False,
@@ -214,34 +334,23 @@ class TestLoss(MultiLoss):
 
         self.pose_align_steps = pose_align_steps
         if self.pose_align_steps:
-            self.pose_embeds = nn.Embedding(2, 9)  # num_views - 1, Delta positions (3D) + Delta rotations (6D)
+            self.pose_embeds = nn.Embedding(num_views - 1, 9)
             self.register_buffer("identity", torch.tensor([1.0, 0.0, 0.0, 0.0, 1.0, 0.0]))
             torch.nn.init.zeros_(self.pose_embeds.weight)
 
     def get_name(self):
         return f'TestLoss'
 
-    def compute_loss(self, gt1, gt2, pred1, pred2, target_view=None, model=None, pose_deltas=None, evaluate=True):
-        # render images
-        # 1. merge predictions
-        pred = merge_and_split_predictions(pred1, pred2)
+    def update_lpips(self, pred, gt):
+        score = self.lpips_vgg(pred.unsqueeze(0), gt.unsqueeze(0))
+        self.lpips_scores.append(score.item())
 
-        """
-        # 2. calculate optimal scaling
-        pred_pts1 = pred1['means']
-        pred_pts2 = pred2['means']
-        # convert to camera1 coordinates
-        # everything is normalized w.r.t. camera of view1
-        valid1 = gt1['valid_mask'].clone()
-        valid2 = gt2['valid_mask'].clone()
-        in_camera1 = inv(gt1['camera_pose'])
-        gt_pts1 = geotrf(in_camera1, gt1['pts3d'].to(in_camera1.device))  # B,H,W,3
-        gt_pts2 = geotrf(in_camera1, gt2['pts3d'].to(in_camera1.device))  # B,H,W,3
-        scaling = find_opt_scaling(
-            gt_pts1, gt_pts2, pred_pts1, pred_pts2, valid1=valid1, valid2=valid2)
-        """
+    def compute_lpips_mean(self):
+        return sum(self.lpips_scores) / len(self.lpips_scores)
 
-        # 3. render images(need gaussian model, camera, pipeline)
+    def compute_loss(self, gt, preds, target_view=None, model=None, pose_deltas=None, evaluate=True):
+        pred = merge_and_split_predictions(*preds)
+
         rendered_images = []
         rendered_feats = []
         gt_images = []
@@ -252,8 +361,7 @@ class TestLoss(MultiLoss):
             # get gaussian model
             gaussians = GaussianModel.from_predictions(pred[i], sh_degree=3)
             # get camera
-            # ref_camera_extrinsics = gt1['camera_pose'][i]
-            target_view_list = [gt1, gt2, target_view]  # use gt1, gt2, and target_view
+            target_view_list = target_view
             for j in range(len(target_view_list)):
                 # target_extrinsics = target_view_list[j]['camera_pose'][i]
                 target_intrinsics = target_view_list[j]['camera_intrinsics'][i]
@@ -303,21 +411,29 @@ class TestLoss(MultiLoss):
         rendered_depths = torch.stack(rendered_depths, dim=0).squeeze(1).squeeze(-1)
         gt_depths = torch.stack(gt_depths, dim=0)
 
-        image_loss = torch.abs(rendered_images[-1] - gt_images[-1]).mean()
+        image_loss = torch.abs(rendered_images - gt_images).mean()
         feature_loss = (1 - torch.nn.functional.cosine_similarity(
-            rendered_feats[-1], gt_feats[-1], dim=1)).mean()
+            rendered_feats, gt_feats, dim=1)).mean()
 
         logits = model.lseg_feature_extractor.decode_feature(rendered_feats, self.labels)
         pred = logits.argmax(dim=1, keepdim=True)
         pred = pred.clamp(max=7) + 1
-        pred = pred[-1]
 
         if evaluate:
-            pred = torch.where(target_view["labelmap"] != 0, pred, 0)
-            self.miou.update(pred[-1], target_view["labelmap"].long())
-            self.psnr.update(rendered_images[-1], gt_images[-1])
+            for i in range(len(target_view_list)):
+                pred_cur = torch.where(target_view[-i-1]["labelmap"] != 0, pred[-i-1], 0)
+                self.miou.update(pred_cur, target_view[-i-1]["labelmap"].long())
+                self.accuracy.update(pred_cur, target_view[-i-1]["labelmap"].long())
+                self.psnr.update(rendered_images[-i-1], gt_images[-i-1])
+                self.ssim.update(rendered_images[-i-1].unsqueeze(0), gt_images[-i-1].unsqueeze(0))
+                self.update_lpips(rendered_images[-i-1], gt_images[-i-1])
+                rendered = rendered_depths[-i-1]
+                gt = gt_depths[-i-1]
+                device = rendered.device 
+                self.depth_metric = self.depth_metric.to(rendered.device) 
+                self.depth_metric.update(rendered.to(device), gt.to(device))
 
-        loss = image_loss + feature_loss
+        loss = image_loss  # + feature_loss
         return loss, {'image_loss': float(image_loss), 'feature_loss': float(feature_loss)}
 
 
@@ -339,18 +455,23 @@ def loss_of_one_batch(batch,
                 continue
             view[name] = view[name].to(device, non_blocking=True)
 
-    # if symmetrize_batch:
-    #     view1, view2 = make_batch_symmetric((view1, view2))
-    #     target_view, _ = make_batch_symmetric((target_view, target_view))
     # Get the actual model if it's distributed
     actual_model = model.module if hasattr(model, 'module') else model
 
     with torch.cuda.amp.autocast(enabled=bool(use_amp)):
+        torch.cuda.synchronize()
+        time_start = time.perf_counter()
         if actual_model.training:
-            pred1, pred2 = actual_model(view1, view2)
+            pred = actual_model(context_views)
         else:
             with torch.no_grad():
-                pred1, pred2 = actual_model(view1, view2)
+                pred = actual_model(context_views)
+        torch.cuda.synchronize()
+        time_end = time.perf_counter()
+        elapsed = time_end - time_start
+        total_time.append(elapsed)
+
+        render_views = target_views
 
         # loss is supposed to be symmetric
         with torch.cuda.amp.autocast(enabled=False):
@@ -361,25 +482,23 @@ def loss_of_one_batch(batch,
                 for i in range(pose_align_steps):
                     if i != pose_align_steps - 1:
                         loss, _ = criterion(
-                            view1, view2, pred1, pred2, target_view=target_view, model=actual_model,
+                            context_views, pred, target_view=render_views, model=actual_model,
                             pose_deltas=criterion.pose_embeds, evaluate=False)
                         optimzer.zero_grad()
                         loss.backward()
                         optimzer.step()
                     else:
                         loss = criterion(
-                            view1, view2, pred1, pred2, target_view=target_view, model=actual_model,
+                            context_views, pred, target_view=render_views, model=actual_model,
                             pose_deltas=criterion.pose_embeds)
             else:
                 loss = criterion(
-                    view1, view2, pred1, pred2, target_view=target_view, model=actual_model
+                    context_views, pred, target_view=render_views, model=actual_model
                 ) if criterion is not None else None
 
     result = dict(
-        view1=view1,
-        view2=view2,
-        target_view=target_view,
-        pred1=pred1,
-        pred2=pred2,
+        view=context_views,
+        target_view=target_views,
+        pred=pred,
         loss=loss)
     return result[ret] if ret else result

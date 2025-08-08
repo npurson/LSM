@@ -118,10 +118,12 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     if hasattr(data_loader, 'sampler') and hasattr(data_loader.sampler, 'set_epoch'):
         data_loader.sampler.set_epoch(1) # 1 is a dummy value
 
+    total_time = []
     for batch_id, batch in enumerate(metric_logger.log_every(data_loader, args.print_freq, header)):
         res = loss_of_one_batch(batch, model, criterion, device,
                                        symmetrize_batch=False,
-                                       use_amp=bool(args.amp))
+                                       use_amp=bool(args.amp),
+                                       total_time=total_time)
         loss_tuple = res['loss']
         loss_value, loss_details = loss_tuple  # criterion returns two values
 
@@ -129,8 +131,17 @@ def test_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
         metric_logger.update(loss=float(loss_value), **loss_details)
 
     print('PSNR: ', criterion.psnr.compute())
+    print('SSIM: ', criterion.ssim.compute())
+    print('LPIPS: ', criterion.compute_lpips_mean())
     print('mIoU: ', criterion.miou.compute(), criterion.miou.compute().mean())
+    print('Acc: ', criterion.accuracy.compute())
     print('Depth Metrics: ', criterion.depth_metric.compute())
+
+    sum_time = 0.0
+    for i in range(len(total_time)):
+        sum_time += total_time[i]
+    avg_time = sum_time / len(total_time)
+    print(f"\n⚡ Average Inference Time: {avg_time:.4f} seconds per scene")
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()

@@ -23,10 +23,12 @@ class VG3R(nn.Module):
 
         self.vggt = VGGT(patch_size=16)
         _url = "https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt"
-        weights = torch.hub.load_state_dict_from_url(_url, map_location='cpu')
-        weights = weights.get('state_dict', weights)
-        weights = checkpoint_filter_fn(weights, self.vggt)
-        self.vggt.load_state_dict(weights, strict=False)
+
+        # resize the patch embedding layer: 14 -> 16
+        # then using checkpoint filter to tranform the weights
+        ckpt_weights = torch.hub.load_state_dict_from_url(_url, map_location='cpu')
+        state_dict = ckpt_weights.get('state_dict', ckpt_weights)
+        ckpt_weights = checkpoint_filter_fn(state_dict, self.vggt)
         self.config.freeze_dust3r = False
 
         self.dpt_head = DPTHead(dim_in=2 * 1024, feature_only=True, input_identity=True, patch_size=16)
@@ -62,22 +64,25 @@ class VG3R(nn.Module):
 
         # self.load_state_dict(torch.load('checkpoint-last.pth', map_location='cpu')['model'], strict=True)
 
-    def forward(self, view1, view2):
+    def forward(self, context_views):
         # normalize intrinsics, assuming the images width and height are same here
-        view1_intr = torch.concat((view1['camera_intrinsics'][:, :2,:] / view1['img'].shape[2],
-            view1['camera_intrinsics'][:, 2:, :]), dim=1)
-        view2_intr = torch.concat((view2['camera_intrinsics'][:, :2,:] / view2['img'].shape[2],
-            view2['camera_intrinsics'][:, 2:, :]), dim=1)
-        images_intr = torch.stack((view1_intr, view2_intr), 1)
+        views_intr = []
+        images = []
+        for i in range(len(context_views)):
+            intr = torch.concat((context_views[i]['camera_intrinsics'][:, :2,:] / context_views[i]['img'].shape[2],
+                context_views[i]['camera_intrinsics'][:, 2:, :]), dim=1)
+            views_intr.append(intr)
+            images.append(context_views[i]['img'])
+        images = torch.stack(images, 1)
+        images_intr = torch.stack(views_intr, 1)
 
-        images = torch.stack((view1['img'], view2['img']), 1)
         dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
         if self.config.freeze_dust3r:
             with torch.no_grad():
                 outputs = self.vggt((images + 1) / 2, images_intr)
         else:
             outputs = self.vggt((images + 1) / 2, images_intr)
-        extr, intr = pose_encoding_to_extri_intri(outputs['pose_enc'], view1['img'].shape[2:])
+        extr, intr = pose_encoding_to_extri_intri(outputs['pose_enc'], context_views[0]['img'].shape[2:])
         extr = F.pad(extr, (0, 0, 0, 1), value=0)
         extr[..., 3, 3] = 1
 
@@ -86,19 +91,19 @@ class VG3R(nn.Module):
             *feats.shape[:2], -1, *feats.shape[-2:])
 
         # LSeg forward pass
-        lseg_token_feature, lseg_res_feature = self.extract_lseg_features(view1, view2)
+        lseg_token_feature, lseg_res_feature = self.extract_lseg_features(context_views)
 
         # Gaussian head forward pass
         final_output = self.gaussian_head(outputs, lseg_res_feature)
-        for i in range(2):
+        for i in range(len(final_output)):
             final_output[i]['depth'] = outputs['depth'][:, i]
             final_output[i]['extr'] = extr[:, i]
             final_output[i]['intr'] = intr[:, i]
         return final_output
 
-    def extract_lseg_features(self, view1, view2):
+    def extract_lseg_features(self, context_views):
         # concat view1 and view2
-        img = torch.cat([view1['img'], view2['img']], dim=0)  # (v*b, 3, h, w)
+        img = torch.cat([view['img'] for view in context_views], dim=0) # (v*b, 3, h, w)
 
         # extract features
         lseg_features = self.lseg_feature_extractor.extract_features(img)  # (v*b, 512, h//2, w//2)

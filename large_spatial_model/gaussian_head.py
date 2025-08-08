@@ -45,9 +45,6 @@ class GaussianHead(nn.Module):
         self.opacity_activation = torch.sigmoid
 
     def forward(self, point_transformer_output, lseg_res_feature):
-        pred1 = {}
-        pred2 = {}
-
         if 'world_points' not in point_transformer_output:  # PointTransformer
             scene_scale = point_transformer_output['scale']  # B, 1, 1
             scene_center = point_transformer_output['center']  # B, 1, 3
@@ -86,7 +83,7 @@ class GaussianHead(nn.Module):
             for pts3d in means
         ])  # B, V * H * W
         median_dist = all_dist.median(dim=-1)[0][:, None, None]  # B, 1, 1
-        scales = scales.clamp(max=10)
+        scales = scales.clamp_max(10.0)
         scales = self.scale_activation(scales) * 0.0025
         scales = rearrange(scales, '(b v h w) c -> b (v h w) c', b=B, v=V, h=H, w=W)
         scales = scales * all_dist[..., None]
@@ -131,20 +128,15 @@ class GaussianHead(nn.Module):
         means = rearrange(means, 'b (v h w) ... -> v b h w ...', v=V, b=B, h=H, w=W)
         gs_feats = rearrange(gs_feats, '(b v h w) ... -> v b h w ...', v=V, b=B, h=H, w=W)
 
-        pred1['scales'] = scales[0]
-        pred1['rotations'] = rotations[0]
-        pred1['covs'] = covs[0]
-        pred1['opacities'] = opacities[0]
-        pred1['sh_coeffs'] = sh_coeffs[0]
-        pred1['means'] = means[0]
-        pred1['gs_feats'] = gs_feats[0]
-
-        pred2['scales'] = scales[1]
-        pred2['rotations'] = rotations[1]
-        pred2['covs'] = covs[1]
-        pred2['opacities'] = opacities[1]
-        pred2['sh_coeffs'] = sh_coeffs[1]
-        pred2['means'] = means[1]
-        pred2['gs_feats'] = gs_feats[1]
-
-        return pred1, pred2
+        preds = []
+        for i in range(scales.shape[0]):
+            pred = {}
+            pred['scales'] = scales[i]
+            pred['rotations'] = rotations[i]
+            pred['covs'] = covs[i]
+            pred['opacities'] = opacities[i]
+            pred['sh_coeffs'] = sh_coeffs[i]
+            pred['means'] = means[i]
+            pred['gs_feats'] = gs_feats[i]
+            preds.append(pred)
+        return preds
