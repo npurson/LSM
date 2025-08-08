@@ -35,14 +35,39 @@ class TestDataset(BaseStereoViewDataset):
         self.num_views = num_views
         self.map_func = map_func(os.path.join(ROOT, 'scannetv2-labels.combined.tsv'))
         
-        # load all scenes
-        with open(osp.join(self.ROOT, f'selected_seqs_{self.split}.json'), 'r') as f:
-            self.scenes = json.load(f)
-            self.scenes = {k: sorted(v) for k, v in self.scenes.items() if len(v) > 0}
-            ignored_scenes = ['scene0696_02']
-            for key in ignored_scenes:
-                if key in self.scenes:
-                    del self.scenes[key]
+        if self.num_views == 100: #2:
+            # load all scenes for multiviews evaluation
+            with open(osp.join(self.ROOT, f'selected_seqs_{self.split}.json'), 'r') as f:
+                self.scenes = json.load(f)
+                self.scenes = {k: sorted(v) for k, v in self.scenes.items() if len(v) > 0}
+                ignored_scenes = ['scene0696_02']
+                for key in ignored_scenes:
+                    if key in self.scenes:
+                        del self.scenes[key]
+        # load all scenes for 360 evaluation
+        elif self.num_views == 4 or 8 or 16 or 32:
+            self.scenes = {}
+            # Traverse all the folders in the data_root
+            scene_names = [folder for folder in os.listdir(self.ROOT) if os.path.isdir(os.path.join(self.ROOT, folder))]
+            scene_names.sort()
+            for scene_name in scene_names:
+                images_paths = [f for f in os.listdir(osp.join(self.ROOT, scene_name, 'images'))
+                                if f.lower().endswith('.jpg')]
+                images_paths.sort()
+                indices = np.arange(0, self.num_views*2, 2).astype(int)
+                # indices = indices + 15
+                context_views = [images_paths[i][:-4] for i in indices]
+                filter_images = images_paths[:self.num_views*2-1]
+                target_views_with_extension = [f for f in filter_images if f[:-4] not in context_views]
+                target_views = [f[:-4] for f in target_views_with_extension]
+                self.scenes[scene_name] = context_views + target_views
+                ignored_scenes = ['scene0696_02']
+                for key in ignored_scenes:
+                    if key in self.scenes:
+                        del self.scenes[key]
+        else:
+            print(f"num_views is wrong!!!")
+            assert False
         
         self.scene_list = list(self.scenes.keys())
         self.invalidate = {scene: {} for scene in self.scene_list}
@@ -53,8 +78,6 @@ class TestDataset(BaseStereoViewDataset):
         self.all_views = self.get_all_views()
         self.views_per_scene = len(self.all_views) // len(self.scene_list)
 
-        self.normalize_camera = normalize_camera
-
     def __len__(self):
         return len(self.all_views)
     
@@ -62,18 +85,22 @@ class TestDataset(BaseStereoViewDataset):
         views = []
         for scene_id in self.scene_list:
             if not self.is_training:
-                selected_views = [i for i in range(len(self.scenes[scene_id])) if i % self.llff_hold in self.test_ids]
-                for target_view in selected_views:
-                    source_view1 = max(target_view - 1, 0)
-                    source_view2 = min(target_view + 1, len(self.scenes[scene_id]) - 1)
-                    views.append((scene_id, (source_view2, target_view, source_view1)))
+                if self.num_views == 2:
+                    selected_views = [i for i in range(len(self.scenes[scene_id])) if i % self.llff_hold in self.test_ids]
+                    for target_view in selected_views:
+                        source_view1 = max(target_view - 1, 0)
+                        source_view2 = min(target_view + 1, len(self.scenes[scene_id]) - 1)
+                        views.append((scene_id, (target_view, source_view2, source_view1)))
+                elif self.num_views == 8 or 16 or 32:
+                    selected_views = list(range(self.num_views*2-1))[::-1]
+                    views.append((scene_id, selected_views))
             else:
                 selected_views = [i for i in range(len(self.scenes[scene_id])) if i % self.llff_hold not in self.test_ids]
                 for target_view in selected_views:
                     source_view1 = target_view
                     source_view2 = target_view + 1 if target_view + 1 < len(self.scenes[scene_id]) else target_view - 1
-                    views.append((scene_id, (source_view2, target_view, source_view1)))
-                
+                    views.append((scene_id, (target_view, source_view2, source_view1)))
+
         return views
     
     def _get_views(self, idx, resolution, rng):
@@ -89,9 +116,7 @@ class TestDataset(BaseStereoViewDataset):
         mask_bg = (self.mask_bg == True) or (self.mask_bg == 'rand' and rng.choice(2))
         
         views = []
-        imgs_idxs = [imgs_idxs[1], imgs_idxs[2], imgs_idxs[0]]
         imgs_idxs = deque(imgs_idxs)
-        i = 0
         while len(imgs_idxs) > 0:  # some images (few) have zero depth
             im_idx = imgs_idxs.pop()
             
@@ -156,23 +181,8 @@ class TestDataset(BaseStereoViewDataset):
                 self.invalidate[scene_id][resolution][im_idx] = True
                 imgs_idxs.append(im_idx)
                 continue
-
-            if self.normalize_camera:
-                extrinsics = np.copy(camera_pose)
-                if i == 0:
-                    extrinsics0 = extrinsics
-                    scale = 0.
-                elif i == 1:
-                    scale = np.linalg.norm(extrinsics0[:3, 3] - extrinsics[:3, 3])
-                    extrinsics0[:3, 3] /= scale
-                if i in (1, 2):
-                    extrinsics[:3, 3] /= scale
-
-                if i == 1:
-                    views[0]['extrinsics'] = camera_normalization(extrinsics0, extrinsics0)
-                    views[0]['scale'] = scale
-                if i in (1, 2):
-                    extrinsics = camera_normalization(extrinsics0, extrinsics)
+            extrinsics = np.copy(camera_pose)
+            scale = np.float32(1.0)
 
             view = dict(
                 img=rgb_image,
@@ -187,7 +197,13 @@ class TestDataset(BaseStereoViewDataset):
                 labelmap=labelmap,
             )
             views.append(view)
-            i += 1
+
+        for i in range(len(views)):
+            views[i]['extrinsics'][:3, 3] /=  scale
+            if i == 0:
+                extrinsics0 = views[i]['extrinsics']
+            views[i]['extrinsics'] = camera_normalization(extrinsics0, views[i]['extrinsics'])
+            views[i]['scale'] = scale
             
         return views
     
