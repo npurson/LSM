@@ -11,6 +11,7 @@ from torchmetrics.segmentation import MeanIoU
 from torchmetrics.classification import MulticlassJaccardIndex
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 from torchvision.utils import save_image
+import time
 
 
 import torch
@@ -338,6 +339,8 @@ class TestLoss(MultiLoss):
             self.register_buffer("identity", torch.tensor([1.0, 0.0, 0.0, 0.0, 1.0, 0.0]))
             torch.nn.init.zeros_(self.pose_embeds.weight)
 
+        self.depth_metric = DepthEstimationMetric(align_by_median=False, align_by_least_squares=True)
+
     def get_name(self):
         return f'TestLoss'
 
@@ -370,9 +373,9 @@ class TestLoss(MultiLoss):
                 target_extrinsics_[:3, :3] = target_extrinsics[:3, :3].mT
                 target_extrinsics_[:3, 3:4] = -target_extrinsics_[:3, :3] @ target_extrinsics[:3, 3:4]
 
-                if pose_deltas is not None and j > 0:
+                if pose_deltas is not None:
                     assert i == 0
-                    pose_deltas_ = pose_deltas.weight[j - 1].unsqueeze(0)
+                    pose_deltas_ = pose_deltas.weight[j].unsqueeze(0)
                     dx, drot = pose_deltas_[..., :3], pose_deltas_[..., 3:]
                     rot = rotation_6d_to_matrix(
                         drot + self.identity.expand(pose_deltas_.size(0), -1)
@@ -444,8 +447,28 @@ def loss_of_one_batch(batch,
                       device,
                       symmetrize_batch=False,
                       use_amp=False,
-                      ret=None):
-    view1, view2, target_view = batch
+                      ret=None,
+                      total_time=None):
+
+    context_views = []
+    target_views = []
+
+    assert len(batch) != 0
+
+    if len(batch) < 5:
+        for i in range(len(batch)):
+            if i < 2:
+                context_views.append(batch[i])
+            else:
+                target_views.append(batch[i])
+    else:
+        for i in range(len(batch)):
+            # if i < len(batch)-16: # using on test
+            split_len = (len(batch) + 1) / 2
+            if i < split_len:
+                context_views.append(batch[i])
+            else:
+                target_views.append(batch[i])
     ignore_keys = set([
         'depthmap', 'dataset', 'label', 'instance', 'idx', 'true_shape', 'rng'
     ])

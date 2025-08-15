@@ -34,7 +34,7 @@ def segment_uniform_sample(frame_num, num_segments):
     return scene_combinations
 
 class Scannet(BaseStereoViewDataset):
-    def __init__(self, *args, ROOT, num_views=3, **kwargs):
+    def __init__(self, *args, ROOT, num_views=2, **kwargs):
         self.ROOT = ROOT
         super().__init__(*args, **kwargs)
         self.num_views = num_views

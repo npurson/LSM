@@ -197,6 +197,9 @@ class TestDataset(BaseStereoViewDataset):
                 labelmap=labelmap,
             )
             views.append(view)
+        
+        if self.num_views == 2:
+            scale = np.linalg.norm(views[0]['extrinsics'][:3, 3] - views[-1]['extrinsics'][:3, 3])
 
         for i in range(len(views)):
             views[i]['extrinsics'][:3, 3] /=  scale

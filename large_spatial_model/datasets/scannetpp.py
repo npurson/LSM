@@ -10,7 +10,7 @@ from .scannet import camera_normalization
 
 
 class Scannetpp(BaseStereoViewDataset):
-    def __init__(self, *args, ROOT, num_views=3, **kwargs):
+    def __init__(self, *args, ROOT, num_views=2, **kwargs):
         self.ROOT = ROOT
         super().__init__(*args, **kwargs)
         assert self.split == 'train' # just for training
