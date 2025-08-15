@@ -26,7 +26,7 @@ def map_func(label_path, labels=['wall', 'floor', 'ceiling', 'chair', 'table', '
 
 
 class TestDataset(BaseStereoViewDataset):
-    def __init__(self, mask_bg=True, llff_hold=8, test_ids=[1,4], is_training=False, num_views=3, normalize_camera=True, *args, ROOT, **kwargs):
+    def __init__(self, mask_bg=True, llff_hold=8, test_ids=[1,4], is_training=False, num_views=2, normalize_camera=True, *args, ROOT, **kwargs):
         
         self.ROOT = ROOT
         super().__init__(*args, **kwargs)
@@ -35,7 +35,7 @@ class TestDataset(BaseStereoViewDataset):
         self.num_views = num_views
         self.map_func = map_func(os.path.join(ROOT, 'scannetv2-labels.combined.tsv'))
         
-        if self.num_views == 100: #2:
+        if self.num_views == 2:
             # load all scenes for multiviews evaluation
             with open(osp.join(self.ROOT, f'selected_seqs_{self.split}.json'), 'r') as f:
                 self.scenes = json.load(f)

@@ -180,6 +180,9 @@ class Scannetpp(BaseStereoViewDataset):
                     instance=f'{str(idx)}_{str(view_idx)}',
                 ))
 
+            if self.num_views == 2:
+                scale = np.linalg.norm(views[0]['extrinsics'][:3, 3] - views[-1]['extrinsics'][:3, 3])
+
             for i, view_idx in enumerate(pick_id):
                 views[i]['extrinsics'][:3, 3] /=  scale
                 if i == 0:
