@@ -24,8 +24,8 @@ from large_spatial_model.datasets.scannetpp import Scannetpp
 dust3r.datasets.Scannetpp = Scannetpp
 dust3r.datasets.Scannet = Scannet
 
-from large_spatial_model.vg3r import VG3R
-dust3r.training.VG3R = VG3R
+from large_spatial_model.uni3r import Uni3R
+dust3r.training.Uni3R = Uni3R
 
 import yaml
 
@@ -42,7 +42,7 @@ def get_args_parser():
     config_str = "config=" + str(config)
 
     # Set the default model string with parameters
-    parser.set_defaults(model=f"VG3R({config_str})")
+    parser.set_defaults(model=f"Uni3R({config_str})")
 
     return parser
 

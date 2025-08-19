@@ -15,7 +15,7 @@ from vggt.utils.pose_enc import pose_encoding_to_extri_intri
 from .utils.weight_modify import checkpoint_filter_fn
 
 
-class VG3R(nn.Module):
+class Uni3R(nn.Module):
 
     def __init__(self, config: LSMConfig):
         super().__init__()
